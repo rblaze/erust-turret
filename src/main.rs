@@ -11,9 +11,11 @@ use rtt_target::rtt_init_print;
 use stm32f1xx_hal::gpio::PinState;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
-use stm32f1xx_hal::time::{Hertz, MicroSeconds};
+use stm32f1xx_hal::time::{Hertz, MicroSeconds, MilliSeconds};
 
 pub mod servo;
+
+const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
 #[entry]
 fn main() -> ! {
@@ -46,16 +48,15 @@ fn main() -> ! {
         .pwm_hz(
             (sensor_servo_pin, laser_servo_pin),
             &mut afio.mapr,
-            Hertz::Hz(50),
+            SERVO_FREQ,
             &clocks,
         )
         .split();
 
-    // Calculate 1ms and 2ms bounds for servo
-    let lower_bound = sensor_servo_pwm.get_max_duty() / 20; // 20ms (50Hz) / 20 = 1ms
-    let upper_bound = sensor_servo_pwm.get_max_duty() / 10; // 20ms (50Hz) / 10 = 2ms
+    let period: MilliSeconds = SERVO_FREQ.try_into_duration().unwrap();
 
-    let mut sensor_servo = servo::Servo::new(sensor_servo_pwm, lower_bound, upper_bound);
+    let mut sensor_servo =
+        servo::Servo::from_period_ms(sensor_servo_pwm, period.to_millis().try_into().unwrap());
     sensor_servo.percent(50);
     sensor_servo.enable();
 
