@@ -40,15 +40,14 @@ where
         let lower_bound = max_duty / period_ms;
         let upper_bound_32 = (max_duty as u32 * 2) / (period_ms as u32);
 
-        let upper_bound: PWM::Duty;
-        if upper_bound_32 <= max_duty as u32 {
-            upper_bound = upper_bound_32 as PWM::Duty;
+        let upper_bound: PWM::Duty = if upper_bound_32 <= max_duty as u32 {
+            upper_bound_32 as PWM::Duty
         } else {
             panic!(
                 "Calculated 2ms duty is larger than max_duty: {} > {}",
                 upper_bound_32, max_duty
             );
-        }
+        };
 
         Self::new(pwm, lower_bound, upper_bound)
     }
