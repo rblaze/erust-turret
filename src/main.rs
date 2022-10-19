@@ -54,9 +54,10 @@ fn main() -> ! {
         .split();
 
     let period: MilliSeconds = SERVO_FREQ.try_into_duration().unwrap();
+    let bounds =
+        servo::Bounds::from_period_ms(&sensor_servo_pwm, period.to_millis().try_into().unwrap());
 
-    let mut sensor_servo =
-        servo::Servo::from_period_ms(sensor_servo_pwm, period.to_millis().try_into().unwrap());
+    let mut sensor_servo = servo::Servo::new(sensor_servo_pwm, bounds);
     sensor_servo.percent(50);
     sensor_servo.enable();
 
