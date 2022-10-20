@@ -11,7 +11,7 @@ use rtt_target::rtt_init_print;
 use stm32f1xx_hal::gpio::PinState;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
-use stm32f1xx_hal::time::{Hertz, MicroSeconds, MilliSeconds};
+use stm32f1xx_hal::time::{Hertz, MilliSeconds};
 
 pub mod servo;
 
@@ -63,7 +63,7 @@ fn main() -> ! {
 
     loop {
         rprintln!("loop");
-        sleep_timer.delay(MicroSeconds::millis(1000));
+        sleep_timer.delay(1.secs());
         let state;
         let pct;
 
