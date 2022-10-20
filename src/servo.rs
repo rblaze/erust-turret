@@ -22,9 +22,54 @@ where
             upper_bound_32 as PWM::Duty
         } else {
             panic!(
-                "Calculated 2ms duty is larger than max_duty: {} > {}",
+                "Calculated upper bound is larger than max_duty: {} > {}",
                 upper_bound_32, max_duty
             );
+        };
+
+        Self {
+            lower_bound,
+            upper_bound,
+        }
+    }
+
+    // Calculate bounds scaling them up or down
+    pub fn scale_from_period_ms(
+        pwm: &PWM,
+        period_ms: u16,
+        numerator: u16,
+        denominator: u16,
+    ) -> Self {
+        // Reduce numerator and denominator below 8192: servo doesn't have that much precision.
+        let mut n = numerator as u32;
+        let mut d = denominator as u32;
+        while n >= 8192 || d >= 8192 {
+            n >>= 1;
+            d >>= 1;
+        }
+
+        // Clamp lower bound at 0
+        if n > 3 * d {
+            n = 3 * d;
+        }
+
+        let max_duty = pwm.get_max_duty();
+        // Lower bound = (max / p) * (3d - n) / 2d
+        let lower_bound_32 = max_duty as u32 * (3 * d - n) / (period_ms as u32 * 2 * d);
+        // upper bound = (max / p) * (3d - n) / 2d
+        let upper_bound_32 = (max_duty as u32 * 2 * numerator as u32) / (period_ms as u32);
+
+        // Clamp bounds at max_duty.
+        let lower_bound: PWM::Duty = if lower_bound_32 <= max_duty as u32 {
+            lower_bound_32 as PWM::Duty
+        } else {
+            max_duty
+        };
+
+        let upper_bound: PWM::Duty = if upper_bound_32 <= max_duty as u32 {
+            upper_bound_32 as PWM::Duty
+        } else {
+            max_duty
         };
 
         Self {

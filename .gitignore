@@ -10,3 +10,4 @@
 **/*.rs.bk
 
 /*.code-workspace
+/.vscode/

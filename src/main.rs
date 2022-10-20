@@ -8,6 +8,7 @@ use panic_probe as _;
 use cortex_m_rt::entry;
 use rtt_target::rprintln;
 use rtt_target::rtt_init_print;
+use stm32f1xx_hal::adc;
 use stm32f1xx_hal::gpio::PinState;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
@@ -37,6 +38,12 @@ fn main() -> ! {
     let mut gpioa = dp.GPIOA.split();
     let mut gpioc = dp.GPIOC.split();
 
+    let mut adc = adc::Adc::adc1(dp.ADC1, clocks);
+    let mut servo_range_ch = gpioa.pa0.into_analog(&mut gpioa.crl);
+    let servo_range = adc.read(&mut servo_range_ch).unwrap();
+    let max_range = adc.max_sample();
+    adc.release(); // No longer needed
+
     let mut led = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
     let button = gpioc.pc13.into_floating_input(&mut gpioc.crh);
 
@@ -54,8 +61,9 @@ fn main() -> ! {
         .split();
 
     let period: MilliSeconds = SERVO_FREQ.try_into_duration().unwrap();
+    let period_ms = period.to_millis().try_into().unwrap();
     let bounds =
-        servo::Bounds::from_period_ms(&sensor_servo_pwm, period.to_millis().try_into().unwrap());
+        servo::Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, servo_range, max_range);
 
     let mut sensor_servo = servo::Servo::new(sensor_servo_pwm, bounds);
     sensor_servo.percent(50);
