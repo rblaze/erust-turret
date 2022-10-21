@@ -8,13 +8,12 @@ use panic_probe as _;
 use cortex_m_rt::entry;
 use rtt_target::rprintln;
 use rtt_target::rtt_init_print;
+use servo::servo::{Bounds, Servo};
 use stm32f1xx_hal::adc;
 use stm32f1xx_hal::gpio::PinState;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
-
-pub mod servo;
 
 const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
@@ -62,10 +61,9 @@ fn main() -> ! {
 
     let period: MilliSeconds = SERVO_FREQ.try_into_duration().unwrap();
     let period_ms = period.to_millis().try_into().unwrap();
-    let bounds =
-        servo::Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, servo_range, max_range);
+    let bounds = Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, servo_range, max_range);
 
-    let mut sensor_servo = servo::Servo::new(sensor_servo_pwm, bounds);
+    let mut sensor_servo = Servo::new(sensor_servo_pwm, bounds);
     sensor_servo.percent(50);
     sensor_servo.enable();
 

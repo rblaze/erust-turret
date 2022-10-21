@@ -1,30 +1,4 @@
-[package]
-name = "erust-turret"
-version = "0.1.0"
-edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-cortex-m-rt = "0.7.1"
-embedded-hal = "0.2.7"
-stm32f1xx-hal = { version = "0.9.0", features = ["stm32f103", "rt", "medium"] }
-
-# panic-halt = "0.2.0"
-panic-probe = { version = "0.3.0", features = ["print-rtt"] }
-rtt-target = { version = "0.3.1", features = ["cortex-m"] }
-
-[[bin]]
-name = "erust-turret"
-test = false
-bench = false
-
-[profile.release]
-codegen-units = 1 # better optimizations
-debug = true # symbols are nice and they don't increase the size on Flash
-lto = true # better optimizations
-opt-level = "s"
-
-[profile.dev]
-incremental = false
-codegen-units = 1 # better optimizations
+[workspace]
+members = [
+  "servo",
+]

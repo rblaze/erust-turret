@@ -56,8 +56,8 @@ where
         let max_duty = pwm.get_max_duty();
         // Lower bound = (max / p) * (3d - n) / 2d
         let lower_bound_32 = max_duty as u32 * (3 * d - n) / (period_ms as u32 * 2 * d);
-        // upper bound = (max / p) * (3d - n) / 2d
-        let upper_bound_32 = (max_duty as u32 * 2 * numerator as u32) / (period_ms as u32);
+        // upper bound = (max / p) * (3d + n) / 2d
+        let upper_bound_32 = max_duty as u32 * (3 * d + n) / (period_ms as u32 * 2 * d);
 
         // Clamp bounds at max_duty.
         let lower_bound: PWM::Duty = if lower_bound_32 <= max_duty as u32 {
@@ -117,5 +117,68 @@ where
         let duty_shift = (self.bounds.upper_bound - self.bounds.lower_bound) as f32 * frac;
         self.pwm
             .set_duty(self.bounds.lower_bound + (duty_shift as u16));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use embedded_hal::PwmPin;
+
+    struct TestPwmPin {
+        duty: u16,
+        max_duty: u16,
+    }
+
+    impl PwmPin for TestPwmPin {
+        type Duty = u16;
+
+        fn disable(&mut self) {}
+        fn enable(&mut self) {}
+        fn get_duty(&self) -> Self::Duty {
+            self.duty
+        }
+        fn get_max_duty(&self) -> Self::Duty {
+            self.max_duty
+        }
+        fn set_duty(&mut self, duty: Self::Duty) {
+            self.duty = duty
+        }
+    }
+
+    #[test]
+    fn test_bounds() {
+        let pin = TestPwmPin {
+            duty: 0,
+            max_duty: 53333,
+        };
+
+        let bounds = Bounds::from_period_ms(&pin, 50);
+        assert_eq!(bounds.lower_bound, 1066);
+        assert_eq!(bounds.upper_bound, 2133);
+    }
+
+    #[test]
+    fn test_scaled_one_to_one_bounds() {
+        let pin = TestPwmPin {
+            duty: 0,
+            max_duty: 53333,
+        };
+
+        let bounds = Bounds::scale_from_period_ms(&pin, 50, 65535, 65535);
+        assert_eq!(bounds.lower_bound, 1066);
+        assert_eq!(bounds.upper_bound, 2133);
+    }
+
+    #[test]
+    fn test_scaled_bounds() {
+        let pin = TestPwmPin {
+            duty: 0,
+            max_duty: 53333,
+        };
+
+        let bounds = Bounds::scale_from_period_ms(&pin, 50, 40000, 65535);
+        assert_eq!(bounds.lower_bound, 1274);
+        assert_eq!(bounds.upper_bound, 1925);
     }
 }
