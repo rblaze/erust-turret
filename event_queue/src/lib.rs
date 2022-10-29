@@ -34,19 +34,31 @@ impl<'e, 'h> EventQueue<'e, 'h> {
             match cursor.get() {
                 None => break,
                 Some(event) => {
-                    let state = critical_section::with(|cs| *event.state.borrow_ref(cs));
+                    let dispatch = critical_section::with(|cs| {
+                        let state = *event.state.borrow_ref(cs);
+                        let period = event.period.borrow(cs).get();
 
-                    let dispatch = match state {
-                        EventState::Done => false,
-                        EventState::DispatchNow => true,
-                        EventState::DispatchAt(dispatch_time) => dispatch_time <= time,
-                    };
+                        let (dispatch, event_time) = match state {
+                            EventState::Done => (false, time),
+                            EventState::DispatchNow => (true, time),
+                            EventState::DispatchAt(dispatch_time) => {
+                                (dispatch_time <= time, dispatch_time)
+                            }
+                        };
+
+                        if dispatch {
+                            match period {
+                                None => event.state.replace(cs, EventState::Done),
+                                Some(duration) => event
+                                    .state
+                                    .replace(cs, EventState::DispatchAt(event_time + duration)),
+                            };
+                        }
+
+                        dispatch
+                    });
 
                     if dispatch {
-                        critical_section::with(|cs| {
-                            event.state.replace(cs, EventState::Done);
-                        });
-
                         event.handler.borrow()();
                     }
 
@@ -192,6 +204,36 @@ mod tests {
         // Check that handler doesn't run again.
         queue.run_once(Instant::from_ticks(110));
         assert!(!done.get());
+    }
+
+    #[test]
+    fn test_periodic_event() {
+        let done = RefCell::new(0);
+
+        let handler = || {
+            done.replace_with(|n| *n + 1);
+        };
+
+        let mut event = Event::new(&handler);
+        event.period(Duration::from_ticks(100));
+
+        let mut queue = EventQueue::new();
+        queue.bind(&event);
+
+        event.call();
+        assert_eq!(*done.borrow(), 0);
+
+        queue.run_once(Instant::from_ticks(7));
+        assert_eq!(*done.borrow(), 1);
+
+        queue.run_once(Instant::from_ticks(106));
+        assert_eq!(*done.borrow(), 1);
+
+        queue.run_once(Instant::from_ticks(107));
+        assert_eq!(*done.borrow(), 2);
+
+        queue.run_once(Instant::from_ticks(210));
+        assert_eq!(*done.borrow(), 3);
     }
 }
 
