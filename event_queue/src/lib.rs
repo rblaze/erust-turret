@@ -5,9 +5,7 @@ use core::cell::RefCell;
 use critical_section::Mutex;
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListLink};
 
-// Millisecond-precision time. Good for 49 days before rollover.
-type Instant = fugit::Instant<u32, 1, 1000>;
-type Duration = fugit::MillisDurationU32;
+pub type TICKS = u32;
 
 pub struct EventQueue<'e, 'h> {
     events: LinkedList<EventAdapter<'e, 'h>>,
@@ -27,7 +25,7 @@ impl<'e, 'h> EventQueue<'e, 'h> {
     }
 
     // Check all registered events once and execute all pending handlers.
-    pub fn run_once(&mut self, time: Instant) {
+    pub fn run_once(&mut self, ticks: TICKS) {
         let mut cursor = self.events.front();
 
         loop {
@@ -39,10 +37,10 @@ impl<'e, 'h> EventQueue<'e, 'h> {
                         let period = event.period.borrow(cs).get();
 
                         let (dispatch, event_time) = match state {
-                            EventState::Done => (false, time),
-                            EventState::DispatchNow => (true, time),
+                            EventState::Done => (false, ticks),
+                            EventState::DispatchNow => (true, ticks),
                             EventState::DispatchAt(dispatch_time) => {
-                                (dispatch_time <= time, dispatch_time)
+                                (dispatch_time <= ticks, dispatch_time)
                             }
                         };
 
@@ -79,14 +77,14 @@ impl<'e, 'h> Default for EventQueue<'e, 'h> {
 enum EventState {
     Done,
     DispatchNow,
-    DispatchAt(Instant),
+    DispatchAt(TICKS),
 }
 
 pub struct Event<'h> {
     // Only changes in EventQueue::bind()
     link: LinkedListLink,
     state: Mutex<RefCell<EventState>>,
-    period: Mutex<Cell<Option<Duration>>>,
+    period: Mutex<Cell<Option<TICKS>>>,
     handler: RefCell<&'h dyn Fn()>, // Never changes
 }
 
@@ -112,7 +110,7 @@ impl<'h> Event<'h> {
 
     // Post an event into message queue with a delay before dispatching the event.
     // This function is interrupt-safe.
-    pub fn call_at(&self, time: Instant) {
+    pub fn call_at(&self, time: TICKS) {
         critical_section::with(|cs| {
             self.state.replace(cs, EventState::DispatchAt(time));
         });
@@ -120,7 +118,7 @@ impl<'h> Event<'h> {
 
     // Set period for repeatedly dispatching an event.
     // This function is interrupt-safe.
-    pub fn period(&mut self, period: Duration) {
+    pub fn period(&mut self, period: TICKS) {
         critical_section::with(|cs| {
             self.period.borrow(cs).set(Some(period));
         });
@@ -145,7 +143,7 @@ mod tests {
 
         queue.bind(&event);
         event.call();
-        queue.run_once(Instant::from_ticks(0));
+        queue.run_once(0);
 
         assert!(done.get());
     }
@@ -165,14 +163,14 @@ mod tests {
         event.call();
         assert_eq!(*done.borrow(), 0);
 
-        queue.run_once(Instant::from_ticks(0));
+        queue.run_once(0);
         assert_eq!(*done.borrow(), 1);
 
-        queue.run_once(Instant::from_ticks(100));
+        queue.run_once(100);
         assert_eq!(*done.borrow(), 1);
 
         event.call();
-        queue.run_once(Instant::from_ticks(200));
+        queue.run_once(200);
         assert_eq!(*done.borrow(), 2);
     }
 
@@ -188,21 +186,21 @@ mod tests {
         let mut queue = EventQueue::new();
 
         queue.bind(&event);
-        event.call_at(Instant::from_ticks(100));
+        event.call_at(100);
 
-        queue.run_once(Instant::from_ticks(0));
+        queue.run_once(0);
         assert!(!done.get());
 
-        queue.run_once(Instant::from_ticks(50));
+        queue.run_once(50);
         assert!(!done.get());
 
-        queue.run_once(Instant::from_ticks(100));
+        queue.run_once(100);
         assert!(done.get());
 
         done.set(false);
 
         // Check that handler doesn't run again.
-        queue.run_once(Instant::from_ticks(110));
+        queue.run_once(110);
         assert!(!done.get());
     }
 
@@ -215,7 +213,7 @@ mod tests {
         };
 
         let mut event = Event::new(&handler);
-        event.period(Duration::from_ticks(100));
+        event.period(100);
 
         let mut queue = EventQueue::new();
         queue.bind(&event);
@@ -223,16 +221,16 @@ mod tests {
         event.call();
         assert_eq!(*done.borrow(), 0);
 
-        queue.run_once(Instant::from_ticks(7));
+        queue.run_once(7);
         assert_eq!(*done.borrow(), 1);
 
-        queue.run_once(Instant::from_ticks(106));
+        queue.run_once(106);
         assert_eq!(*done.borrow(), 1);
 
-        queue.run_once(Instant::from_ticks(107));
+        queue.run_once(107);
         assert_eq!(*done.borrow(), 2);
 
-        queue.run_once(Instant::from_ticks(210));
+        queue.run_once(210);
         assert_eq!(*done.borrow(), 3);
     }
 }
@@ -257,7 +255,7 @@ mod static_tests {
 
         queue.bind(&EVENT);
         EVENT.call();
-        queue.run_once(Instant::from_ticks(0));
+        queue.run_once(0);
 
         let done = critical_section::with(|cs| DONE.borrow(cs).get());
 
