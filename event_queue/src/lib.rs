@@ -25,7 +25,7 @@ impl<'e, 'h> EventQueue<'e, 'h> {
     }
 
     // Check all registered events once and execute all pending handlers.
-    pub fn run_once(&mut self, ticks: TICKS) {
+    pub fn run_once(&self, ticks: TICKS) {
         let mut cursor = self.events.front();
 
         loop {
