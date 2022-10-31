@@ -2,11 +2,14 @@
 
 use core::cell::Cell;
 use core::cell::RefCell;
+use core::fmt::{Debug, Formatter, Result};
+use core::ops::DerefMut;
 use critical_section::Mutex;
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListLink};
 
 pub type TICKS = u32;
 
+#[derive(Debug)]
 pub struct EventQueue<'e, 'h> {
     events: LinkedList<EventAdapter<'e, 'h>>,
 }
@@ -57,7 +60,10 @@ impl<'e, 'h> EventQueue<'e, 'h> {
                     });
 
                     if dispatch {
-                        event.handler.borrow()();
+                        match event.handler.borrow_mut().deref_mut() {
+                            Handler::Fn(h) => h(),
+                            Handler::FnMut(h) => h(),
+                        }
                     }
 
                     cursor.move_next();
@@ -80,12 +86,27 @@ enum EventState {
     DispatchAt(TICKS),
 }
 
+enum Handler<'h> {
+    Fn(&'h dyn Fn()),
+    FnMut(&'h mut dyn FnMut()),
+}
+
+impl<'h> Debug for Handler<'h> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            Handler::Fn(_) => f.write_str("Handler::Fn(_)"),
+            Handler::FnMut(_) => f.write_str("Handler::FnMut(_)"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Event<'h> {
     // Only changes in EventQueue::bind()
     link: LinkedListLink,
     state: Mutex<RefCell<EventState>>,
     period: Mutex<Cell<Option<TICKS>>>,
-    handler: RefCell<&'h dyn Fn()>, // Never changes
+    handler: RefCell<Handler<'h>>, // Never changes
 }
 
 unsafe impl<'h> Sync for Event<'h> {}
@@ -96,7 +117,16 @@ impl<'h> Event<'h> {
             link: LinkedListLink::new(),
             state: Mutex::new(RefCell::new(EventState::Done)),
             period: Mutex::new(Cell::new(None)),
-            handler: RefCell::new(handler),
+            handler: RefCell::new(Handler::Fn(handler)),
+        }
+    }
+
+    pub fn new_mut(handler: &'h mut dyn FnMut()) -> Self {
+        Self {
+            link: LinkedListLink::new(),
+            state: Mutex::new(RefCell::new(EventState::Done)),
+            period: Mutex::new(Cell::new(None)),
+            handler: RefCell::new(Handler::FnMut(handler)),
         }
     }
 
@@ -131,7 +161,7 @@ mod tests {
     use std::cell::Cell;
 
     #[test]
-    fn test_post_event() {
+    fn test_fn_handler() {
         let done = Cell::new(false);
 
         let handler = || {
@@ -146,6 +176,24 @@ mod tests {
         queue.run_once(0);
 
         assert!(done.get());
+    }
+
+    #[test]
+    fn test_fnmut_handler() {
+        let mut done = false;
+        {
+            let mut handler = || {
+                done = true;
+            };
+
+            let event = Event::new_mut(&mut handler);
+            let mut queue = EventQueue::new();
+
+            queue.bind(&event);
+            event.call();
+            queue.run_once(0);
+        }
+        assert!(done);
     }
 
     #[test]
