@@ -5,15 +5,18 @@
 use panic_probe as _;
 // use panic_halt as _;
 
+use crate::event_queue::{Event, ExtEvent};
 use cortex_m_rt::entry;
 use rtt_target::rprintln;
 use rtt_target::rtt_init_print;
 use servo::{Bounds, Servo};
 use stm32f1xx_hal::adc;
-use stm32f1xx_hal::gpio::PinState;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
+
+mod event_queue;
+mod system_time;
 
 const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
@@ -24,12 +27,18 @@ fn main() -> ! {
     let cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
 
+    // Enable debug while sleeping to keep probe-rs happy while WFI
+    dp.DBGMCU.cr.modify(|_, w| {
+        w.dbg_sleep().set_bit();
+        w.dbg_standby().set_bit();
+        w.dbg_stop().set_bit()
+    });
+    dp.RCC.ahbenr.modify(|_, w| w.dma1en().enabled());
+
     // Configure the clock.
     let mut flash = dp.FLASH.constrain();
     let rcc = dp.RCC.constrain();
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
-
-    let mut sleep_timer = cp.SYST.delay(&clocks);
 
     let mut afio = dp.AFIO.constrain();
 
@@ -37,6 +46,7 @@ fn main() -> ! {
     let mut gpioa = dp.GPIOA.split();
     let mut gpioc = dp.GPIOC.split();
 
+    // Read servo range calibration value
     let mut adc = adc::Adc::adc1(dp.ADC1, clocks);
     let mut servo_range_ch = gpioa.pa0.into_analog(&mut gpioa.crl);
     let servo_range = adc.read(&mut servo_range_ch).unwrap();
@@ -71,21 +81,20 @@ fn main() -> ! {
     sensor_servo.percent(50);
     sensor_servo.enable();
 
-    loop {
-        rprintln!("loop");
-        sleep_timer.delay(1.secs());
-        let state;
-        let pct;
+    let mut handler = || {
+        let pct = if button.is_low() { 0 } else { 100 };
 
-        if button.is_low() {
-            state = PinState::High;
-            pct = 0;
-        } else {
-            state = PinState::Low;
-            pct = 100;
-        };
-
-        led.set_state(state);
         sensor_servo.percent(pct);
-    }
+        led.toggle();
+    };
+
+    let mut event = Event::new_mut(&mut handler);
+    event.set_period(500.millis());
+    event.call();
+
+    let ticker = system_time::Ticker::new(cp.SYST);
+    let mut queue = event_queue::EventQueue::new(&ticker);
+
+    queue.bind(&event);
+    queue.run_forever();
 }
