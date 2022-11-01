@@ -38,13 +38,8 @@ impl<'t, 'e, 'h> EventQueue<'t, 'e, 'h> {
     }
 
     pub fn run_forever(self) -> ! {
-        let mut prev_run = 0;
         loop {
-            let ticks = self.ticker.get_ticks();
-            if ticks != prev_run {
-                self.queue.run_once(self.ticker.get_ticks());
-                prev_run = ticks;
-            }
+            self.queue.run_once(self.ticker.get_ticks());
             wfi();
         }
     }
