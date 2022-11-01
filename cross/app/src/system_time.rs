@@ -1,39 +1,32 @@
 #![deny(unsafe_code)]
 
 use core::cell::Cell;
-use cortex_m::peripheral::SYST;
 use cortex_m_rt::exception;
 use critical_section::Mutex;
+use fugit::RateExtU32;
+use stm32f1xx_hal::pac::SYST;
+use stm32f1xx_hal::timer::{SysCounterHz, SysEvent, Timer};
 
-pub type Instant = fugit::TimerInstantU32<100>;
-pub type Duration = fugit::TimerDurationU32<100>;
+const HERTZ: u32 = 100;
+
+pub type Instant = fugit::TimerInstantU32<HERTZ>;
+pub type Duration = fugit::TimerDurationU32<HERTZ>;
 
 static TICKS: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 
 pub struct Ticker {
-    syst: SYST,
+    _counter: SysCounterHz,
 }
 
 impl Ticker {
     // Setup SysTick to tick at 100Hz
-    pub fn new(mut syst: SYST) -> Self {
-        let reload = SYST::get_ticks_per_10ms();
-        assert_ne!(reload, 0);
+    pub fn new(syst: Timer<SYST>) -> Self {
+        let mut counter = syst.counter_hz();
 
-        syst.set_reload(reload);
-        syst.clear_current();
-        syst.enable_interrupt();
-        syst.enable_counter();
+        counter.start(HERTZ.Hz()).unwrap();
+        counter.listen(SysEvent::Update);
 
-        Ticker { syst }
-    }
-
-    // Stop SysTick and release it
-    #[allow(dead_code)]
-    pub fn free(mut self) -> SYST {
-        self.syst.disable_interrupt();
-        self.syst.disable_counter();
-        self.syst
+        Ticker { _counter: counter }
     }
 
     // Get current tick count

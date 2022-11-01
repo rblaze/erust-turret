@@ -14,6 +14,7 @@ use stm32f1xx_hal::adc;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
+use stm32f1xx_hal::timer::Timer;
 
 mod event_queue;
 mod system_time;
@@ -92,7 +93,7 @@ fn main() -> ! {
     event.set_period(500.millis());
     event.call();
 
-    let ticker = system_time::Ticker::new(cp.SYST);
+    let ticker = system_time::Ticker::new(Timer::syst(cp.SYST, &clocks));
     let mut queue = event_queue::EventQueue::new(&ticker);
 
     queue.bind(&event);
