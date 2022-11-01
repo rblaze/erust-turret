@@ -4,50 +4,37 @@ name: Auto build
 
 jobs:
   fmt:
-    name: rustfmt and clippy
+    name: "Run rustfmt and clippy"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: thumbv7m-none-eabi
-          override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all --manifest-path cross/Cargo.toml --check
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --no-deps -- -D warnings
-      - run: cd cross && cargo clippy --no-deps -- -D warnings
+      - name: "Install toolchain"
+        run: rustup toolchain install stable --profile minimal -c rustfmt,clippy -t thumbv7m-none-eabi
+      - name: "Check formatting in root"
+        run: cargo fmt --all --check
+      - name: "Check formatting in cross"
+        run: cargo fmt --all --check --manifest-path cross/Cargo.toml
+      - name: "Run clippy in root"
+        run: cargo clippy --no-deps -- -D warnings
+      - name: "Run clippy in cross"
+        run: cd cross && cargo clippy --no-deps -- -D warnings
 
   test:
-    name: test
+    name: "Run unittests"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
+      - name: "Install toolchain"
+        run: rustup toolchain install stable
+      - name: "Run tests in root"
+        run: cargo test
 
   stm32f103:
-    name: STM32F103RB
+    name: "Build for STM32F103RB"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: thumbv7m-none-eabi
-      - run: cd cross && cargo build
+      - name: "Install toolchain"
+        run: rustup toolchain install stable -t thumbv7m-none-eabi
+      - name: "Build"
+        run: cd cross && cargo build
