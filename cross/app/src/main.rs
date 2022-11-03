@@ -7,6 +7,7 @@ use panic_probe as _;
 
 use crate::event_queue::{Event, ExtEvent};
 use cortex_m_rt::entry;
+use fugit::ExtU32;
 use rtt_target::rprintln;
 use rtt_target::rtt_init_print;
 use servo::{Bounds, Servo};
@@ -45,24 +46,28 @@ fn main() -> ! {
 
     // Acquire the GPIO peripherals.
     let mut gpioa = dp.GPIOA.split();
-    let mut gpioc = dp.GPIOC.split();
+    let mut gpiob = dp.GPIOB.split();
 
     // Read servo range calibration value
     let mut adc = adc::Adc::adc1(dp.ADC1, clocks);
-    let mut servo_range_ch = gpioa.pa0.into_analog(&mut gpioa.crl);
+    let mut servo_range_ch = gpioa.pa1.into_analog(&mut gpioa.crl);
     let servo_range = adc.read(&mut servo_range_ch).unwrap();
     let max_range = adc.max_sample();
-    adc.release(); // No longer needed
+    // adc.release(); // No longer needed
 
     rprintln!("range {} of {}", servo_range, max_range);
 
-    let mut led = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
-    let button = gpioc.pc13.into_floating_input(&mut gpioc.crh);
+    // Disable JTAG to get PB3 (mistake in board design)
+    let (_, pb3, _) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
+
+    let mut led = pb3.into_push_pull_output(&mut gpiob.crl);
+    let button = gpiob.pb5.into_pull_down_input(&mut gpiob.crl);
 
     let sensor_servo_pin = gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
     let laser_servo_pin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
+    let mut laser_pin = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
 
-    let (sensor_servo_pwm, _laser_servo_pwm) = dp
+    let (sensor_servo_pwm, laser_servo_pwm) = dp
         .TIM1
         .pwm_hz(
             (sensor_servo_pin, laser_servo_pin),
@@ -76,16 +81,32 @@ fn main() -> ! {
 
     let period: MilliSeconds = SERVO_FREQ.try_into_duration().unwrap();
     let period_ms = period.to_millis().try_into().unwrap();
-    let bounds = Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, servo_range, max_range);
 
+    let bounds = Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, servo_range, max_range);
     let mut sensor_servo = Servo::new(sensor_servo_pwm, bounds);
     sensor_servo.percent(50);
     sensor_servo.enable();
 
-    let mut handler = || {
-        let pct = if button.is_low() { 0 } else { 100 };
+    let bounds = Bounds::scale_from_period_ms(&laser_servo_pwm, period_ms, servo_range, max_range);
+    let mut laser_servo = Servo::new(laser_servo_pwm, bounds);
+    laser_servo.percent(50);
+    laser_servo.enable();
 
-        sensor_servo.percent(pct);
+    let mut handler = || {
+        let range: u32 = adc.read(&mut servo_range_ch).unwrap();
+        let max_range = adc.max_sample() as u32;
+        let pct = 100 * range / max_range;
+        let b = button.is_high();
+
+        rprintln!("range {} pct {} button {}", range, pct, b);
+
+        sensor_servo.percent(pct as u8);
+        laser_servo.percent(pct as u8);
+        if b {
+            laser_pin.set_high();
+        } else {
+            laser_pin.set_low();
+        }
         led.toggle();
     };
 

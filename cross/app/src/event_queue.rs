@@ -12,7 +12,7 @@ pub trait ExtEvent {
 
 impl<'h> ExtEvent for Event<'h> {
     fn call_at(&self, instant: Instant) {
-        self.call_at(instant.ticks());
+        self.call_on(instant.ticks());
     }
 
     fn set_period(&mut self, period: Duration) {

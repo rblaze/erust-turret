@@ -140,7 +140,7 @@ impl<'h> Event<'h> {
 
     // Post an event into message queue with a delay before dispatching the event.
     // This function is interrupt-safe.
-    pub fn call_at(&self, time: TICKS) {
+    pub fn call_on(&self, time: TICKS) {
         critical_section::with(|cs| {
             self.state.replace(cs, EventState::DispatchAt(time));
         });
@@ -234,7 +234,7 @@ mod tests {
         let mut queue = EventQueue::new();
 
         queue.bind(&event);
-        event.call_at(100);
+        event.call_on(100);
 
         queue.run_once(0);
         assert!(!done.get());
