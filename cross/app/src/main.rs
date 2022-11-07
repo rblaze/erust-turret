@@ -2,9 +2,6 @@
 #![no_std]
 #![no_main]
 
-use panic_probe as _;
-// use panic_halt as _;
-
 use crate::event_queue::{Event, ExtEvent};
 use cortex_m_rt::entry;
 use fugit::ExtU32;
@@ -12,10 +9,15 @@ use rtt_target::rprintln;
 use rtt_target::rtt_init_print;
 use servo::{Bounds, Servo};
 use stm32f1xx_hal::adc;
+use stm32f1xx_hal::i2c::{I2c, Mode};
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
 use stm32f1xx_hal::timer::Timer;
+use vl53l1x::{BootState, DistanceMode, TimingBudget, VL53L1X};
+
+use panic_probe as _;
+// use panic_halt as _;
 
 mod event_queue;
 mod system_time;
@@ -92,6 +94,29 @@ fn main() -> ! {
     laser_servo.percent(50);
     laser_servo.enable();
 
+    let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
+    let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
+    let i2c = I2c::i2c1(
+        dp.I2C1,
+        (scl, sda),
+        &mut afio.mapr,
+        Mode::standard(100.kHz()),
+        clocks,
+    )
+    .blocking_default(clocks);
+
+    let mut sensor = VL53L1X::new(i2c, vl53l1x::ADDR);
+
+    while sensor.boot_state().unwrap() != BootState::Booted {
+        // TODO sleep 1 ms
+    }
+
+    sensor.sensor_init().unwrap();
+    sensor.set_timing_budget(TimingBudget::Ms100).unwrap();
+    sensor.set_distance_mode(DistanceMode::Long).unwrap();
+    sensor.set_inter_measurement(200.millis()).unwrap();
+    sensor.start_ranging().unwrap();
+
     let mut handler = || {
         let range: u32 = adc.read(&mut servo_range_ch).unwrap();
         let max_range = adc.max_sample() as u32;
@@ -99,6 +124,14 @@ fn main() -> ! {
         let b = button.is_high();
 
         rprintln!("range {} pct {} button {}", range, pct, b);
+        if sensor.check_for_data_ready().unwrap() {
+            let distance = sensor.get_distance().unwrap();
+            let status = sensor.get_range_status().unwrap();
+
+            rprintln!("distance {} status {}", distance, status);
+        } else {
+            rprintln!("sensor data not ready");
+        }
 
         sensor_servo.percent(pct as u8);
         laser_servo.percent(pct as u8);

@@ -3,4 +3,5 @@ members = [
   "calibration",
   "event_queue",
   "servo",
+  "VL53L1X",
 ]
