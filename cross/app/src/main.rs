@@ -105,10 +105,12 @@ fn main() -> ! {
     )
     .blocking_default(clocks);
 
+    let ticker = system_time::Ticker::new(Timer::syst(cp.SYST, &clocks));
     let mut sensor = VL53L1X::new(i2c, vl53l1x::ADDR);
 
     while sensor.boot_state().unwrap() != BootState::Booted {
-        // TODO sleep 1 ms
+        // Wait 10 ms until next timer tick
+        cortex_m::asm::wfi();
     }
 
     sensor.sensor_init().unwrap();
@@ -147,7 +149,6 @@ fn main() -> ! {
     event.set_period(500.millis());
     event.call();
 
-    let ticker = system_time::Ticker::new(Timer::syst(cp.SYST, &clocks));
     let mut queue = event_queue::EventQueue::new(&ticker);
 
     queue.bind(&event);
