@@ -42,7 +42,7 @@ fn main() -> ! {
     // Configure the clock.
     let mut flash = dp.FLASH.constrain();
     let rcc = dp.RCC.constrain();
-    let clocks = rcc.cfgr.freeze(&mut flash.acr);
+    let clocks = rcc.cfgr.sysclk(64.MHz()).freeze(&mut flash.acr);
 
     let mut afio = dp.AFIO.constrain();
 
