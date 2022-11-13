@@ -114,6 +114,7 @@ dependencies = [
  "embedded-hal",
  "event_queue",
  "fugit",
+ "nb 1.0.0",
  "panic-probe",
  "rtt-target",
  "servo",
