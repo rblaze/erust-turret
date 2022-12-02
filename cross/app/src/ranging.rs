@@ -5,7 +5,6 @@ use crate::system_time::{Duration, Ticker};
 
 use calibration::Calibration;
 use core::cell::{RefCell, RefMut};
-use fugit::ExtU32;
 use rtt_target::rprintln;
 use vl53l1x::{DistanceMode, TimingBudget};
 
@@ -13,6 +12,12 @@ use vl53l1x::{DistanceMode, TimingBudget};
 enum MoveResult {
     SameDirection,
     ChangeDirection,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CalibrationResult {
+    NeedMorePoints,
+    Done,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -52,6 +57,7 @@ impl StaticState {
 unsafe impl Sync for StaticState {}
 
 const SENSOR_TIMING_BUDGET: Duration = Duration::millis(100);
+const SENSOR_INTERMEASURMENT_TIME: Duration = Duration::millis(200);
 const SENSOR_RETRY_TIME: Duration = Duration::millis(10);
 const SERVO_RESET_TIME: Duration = Duration::millis(500);
 const SERVO_STEP_TIME: Duration = Duration::millis(100);
@@ -77,33 +83,46 @@ fn read_sensor() -> Result<(), Error> {
     let mut stref = STATE.get();
     let state = stref.as_mut().ok_or(Error::Uninitialized)?;
 
-    if state.sensor.check_for_data_ready()? {
-        let distance = state.sensor.get_distance()?;
-        state.sensor.clear_interrupt()?;
-
-        match state.mode {
-            ScanMode::Baseline(_) => {
-                state.sensor.stop_ranging()?;
-                process_calibration(distance);
-                move_servo(state);
-            }
-            _ => {
-                state.sensor.stop_ranging()?;
-                process_scan(distance);
-                move_servo(state);
-            }
-        }
-    } else {
+    if !(state.sensor.check_for_data_ready()?) {
         rprintln!("sensor not ready");
         // Try again shortly
         READ_SENSOR.call_at(state.ticker.now() + SENSOR_RETRY_TIME);
+        return Ok(());
+    }
+
+    let distance = state.sensor.get_distance()?;
+    state.sensor.clear_interrupt()?;
+
+    if let ScanMode::Baseline(ref mut calibration) = state.mode {
+        if process_calibration(calibration, distance) == CalibrationResult::Done {
+            state.mode = ScanMode::Baseline(Calibration::new());
+            state.sensor.stop_ranging()?;
+            move_servo(state);
+        } else {
+            // Get next scan in 200 ms
+            READ_SENSOR.call_at(state.ticker.now() + SENSOR_INTERMEASURMENT_TIME);
+        }
+    } else {
+        process_scan(distance);
+        state.sensor.stop_ranging()?;
+        move_servo(state);
     }
 
     Ok(())
 }
 
-fn process_calibration(distance: u16) {
+fn process_calibration(calibration: &mut Calibration, distance: u16) -> CalibrationResult {
     rprintln!("cal {}", distance);
+    calibration.add_sample(distance);
+
+    if calibration.num_samples() == 3 {
+        let point = calibration.get_point();
+        rprintln!("point {:?}", point);
+
+        CalibrationResult::Done
+    } else {
+        CalibrationResult::NeedMorePoints
+    }
 }
 
 fn process_scan(distance: u16) {
@@ -152,7 +171,7 @@ pub fn start(
 
     sensor.set_timing_budget(TimingBudget::Ms100)?;
     sensor.set_distance_mode(DistanceMode::Long)?;
-    sensor.set_inter_measurement(200.millis())?;
+    sensor.set_inter_measurement(SENSOR_INTERMEASURMENT_TIME.convert())?;
 
     *STATE.get() = Some(State {
         ticker,

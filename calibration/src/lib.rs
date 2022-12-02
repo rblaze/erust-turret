@@ -33,6 +33,10 @@ impl Calibration {
         self.m2 += delta * delta2;
     }
 
+    pub fn num_samples(&self) -> u16 {
+        self.count
+    }
+
     pub fn get_point(&self) -> Point {
         assert!(self.count > 1);
         let stddev = sqrtf(self.m2 / (self.count - 1) as f32);
