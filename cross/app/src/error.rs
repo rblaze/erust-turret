@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+
 use core::num::TryFromIntError;
 
 #[derive(Debug)]
@@ -6,6 +8,7 @@ pub enum Error {
     InvalidDuration,
     ConversionError(TryFromIntError),
     UnexpectedlyBlocks,
+    Uninitialized,
 }
 
 impl From<vl53l1x::Error<nb::Error<stm32f1xx_hal::i2c::Error>>> for Error {

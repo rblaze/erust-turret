@@ -5,7 +5,7 @@ use cortex_m_rt::exception;
 use critical_section::Mutex;
 use fugit::RateExtU32;
 use stm32f1xx_hal::pac::SYST;
-use stm32f1xx_hal::timer::{SysCounterHz, SysEvent, Timer};
+use stm32f1xx_hal::timer::{SysEvent, Timer};
 
 const HERTZ: u32 = 100;
 
@@ -14,9 +14,8 @@ pub type Duration = fugit::TimerDurationU32<HERTZ>;
 
 static TICKS: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 
-pub struct Ticker {
-    _counter: SysCounterHz,
-}
+#[derive(Clone, Copy, Debug)]
+pub struct Ticker {}
 
 impl Ticker {
     // Setup SysTick to tick at 100Hz
@@ -26,7 +25,7 @@ impl Ticker {
         counter.start(HERTZ.Hz()).unwrap();
         counter.listen(SysEvent::Update);
 
-        Ticker { _counter: counter }
+        Ticker {}
     }
 
     // Get current tick count
