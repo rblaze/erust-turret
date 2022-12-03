@@ -25,7 +25,15 @@ fn main() -> ! {
     let board = Board::new(cp, dp).unwrap();
     let mut queue = event_queue::EventQueue::new(&board.ticker);
 
-    ranging::start(board.ticker, &mut queue, board.sensor, board.sensor_servo).unwrap();
+    ranging::start(
+        board.ticker,
+        &mut queue,
+        board.sensor,
+        board.sensor_servo,
+        board.adc_value,
+        board.adc_max,
+    )
+    .unwrap();
 
     queue.run_forever();
 }

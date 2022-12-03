@@ -39,6 +39,8 @@ pub struct Board {
     pub sensor_servo: SensorServo,
     pub target_lock_led: Led,
     pub button: Button,
+    pub adc_value: u16,
+    pub adc_max: u16,
 }
 
 impl Board {
@@ -65,11 +67,15 @@ impl Board {
         // Read servo range calibration value
         let mut adc = adc::Adc::adc1(dp.ADC1, clocks);
         let mut servo_range_ch = gpioa.pa1.into_analog(&mut gpioa.crl);
-        let servo_range = adc.read(&mut servo_range_ch)?;
-        let max_range = adc.max_sample();
+        let mut adc_value = adc.read(&mut servo_range_ch)?;
+        let adc_max = adc.max_sample();
         adc.release(); // No longer needed
 
-        rprintln!("range {} of {}", servo_range, max_range);
+        rprintln!("range {} of {}", adc_value, adc_max);
+        // Avoid too small range
+        if adc_value < adc_max / 10 {
+            adc_value = adc_max / 10;
+        }
 
         // Disable JTAG to get PB3 (mistake in board design)
         let (_, pb3, _) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
@@ -98,14 +104,12 @@ impl Board {
             .ok_or(Error::InvalidDuration)?;
         let period_ms = period.to_millis().try_into()?;
 
-        let bounds =
-            Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, servo_range, max_range);
+        let bounds = Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, adc_value, adc_max);
         let mut sensor_servo = Servo::new(sensor_servo_pwm, bounds);
         sensor_servo.percent(50);
         sensor_servo.enable();
 
-        let bounds =
-            Bounds::scale_from_period_ms(&laser_servo_pwm, period_ms, servo_range, max_range);
+        let bounds = Bounds::scale_from_period_ms(&laser_servo_pwm, period_ms, adc_value, adc_max);
         let mut laser_servo = Servo::new(laser_servo_pwm, bounds);
         laser_servo.percent(50);
         laser_servo.enable();
@@ -138,6 +142,8 @@ impl Board {
             sensor_servo,
             target_lock_led,
             button,
+            adc_value,
+            adc_max,
         })
     }
 }

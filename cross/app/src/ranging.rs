@@ -183,7 +183,12 @@ pub fn start(
     event_queue: &mut EventQueue<'_, '_, 'static>,
     mut sensor: Sensor,
     mut servo: SensorServo,
+    angle_setting: u16,
+    angle_max: u16,
 ) -> Result<(), Error> {
+    let total_steps = MAX_STEPS * angle_setting as usize / angle_max as usize;
+    rprintln!("using {} steps", total_steps);
+
     servo.fraction(0.0);
 
     sensor.set_timing_budget(TimingBudget::Ms100)?;
@@ -196,7 +201,7 @@ pub fn start(
         servo,
         mode: ScanMode::Baseline(Calibration::new()),
         current_step: 0,
-        total_steps: 50, // TODO set from the pot angle
+        total_steps,
         baseline: [0; MAX_STEPS],
     });
 
