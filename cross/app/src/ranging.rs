@@ -8,6 +8,15 @@ use core::cell::{RefCell, RefMut};
 use rtt_target::rprintln;
 use vl53l1x::{DistanceMode, TimingBudget};
 
+const MAX_STEPS: usize = 100;
+const NUM_CALIBRATION_SAMPLES: u16 = 5;
+
+const SENSOR_TIMING_BUDGET: Duration = Duration::millis(100);
+const SENSOR_INTERMEASURMENT_TIME: Duration = Duration::millis(120);
+const SENSOR_RETRY_TIME: Duration = Duration::millis(10);
+const SERVO_RESET_TIME: Duration = Duration::millis(500);
+const SERVO_STEP_TIME: Duration = Duration::millis(100);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MoveResult {
     SameDirection,
@@ -16,8 +25,8 @@ enum MoveResult {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CalibrationResult {
-    NeedMorePoints,
-    Done,
+    NeedMoreData,
+    Done(u16),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,8 +41,9 @@ struct State {
     sensor: Sensor,
     servo: SensorServo,
     mode: ScanMode,
-    current_step: i32,
-    total_steps: i32,
+    current_step: usize,
+    total_steps: usize,
+    baseline: [u16; MAX_STEPS],
 }
 
 struct StaticState {
@@ -55,12 +65,6 @@ impl StaticState {
 // STATE is only accessed from the main thread via EventQueue.
 // Therefore, no locking is necessary.
 unsafe impl Sync for StaticState {}
-
-const SENSOR_TIMING_BUDGET: Duration = Duration::millis(100);
-const SENSOR_INTERMEASURMENT_TIME: Duration = Duration::millis(200);
-const SENSOR_RETRY_TIME: Duration = Duration::millis(10);
-const SERVO_RESET_TIME: Duration = Duration::millis(500);
-const SERVO_STEP_TIME: Duration = Duration::millis(100);
 
 static STATE: StaticState = StaticState::new();
 
@@ -94,7 +98,8 @@ fn read_sensor() -> Result<(), Error> {
     state.sensor.clear_interrupt()?;
 
     if let ScanMode::Baseline(ref mut calibration) = state.mode {
-        if process_calibration(calibration, distance) == CalibrationResult::Done {
+        if let CalibrationResult::Done(threshold) = process_calibration(calibration, distance) {
+            state.baseline[state.current_step] = threshold;
             state.mode = ScanMode::Baseline(Calibration::new());
             state.sensor.stop_ranging()?;
             move_servo(state);
@@ -103,7 +108,7 @@ fn read_sensor() -> Result<(), Error> {
             READ_SENSOR.call_at(state.ticker.now() + SENSOR_INTERMEASURMENT_TIME);
         }
     } else {
-        process_scan(distance);
+        process_scan(state.baseline[state.current_step], distance);
         state.sensor.stop_ranging()?;
         move_servo(state);
     }
@@ -115,50 +120,62 @@ fn process_calibration(calibration: &mut Calibration, distance: u16) -> Calibrat
     rprintln!("cal {}", distance);
     calibration.add_sample(distance);
 
-    if calibration.num_samples() == 3 {
+    if calibration.num_samples() == NUM_CALIBRATION_SAMPLES {
         let point = calibration.get_point();
-        rprintln!("point {:?}", point);
 
-        CalibrationResult::Done
+        let buffer = 3 * point.stddev;
+        let threshold = if point.mean > buffer {
+            point.mean - buffer
+        } else {
+            0
+        };
+
+        rprintln!("point {:?} threshold {}", point, threshold);
+
+        CalibrationResult::Done(threshold)
     } else {
-        CalibrationResult::NeedMorePoints
+        CalibrationResult::NeedMoreData
     }
 }
 
-fn process_scan(distance: u16) {
+fn process_scan(threshold: u16, distance: u16) {
     rprintln!("run {}", distance);
+
+    if distance < threshold {
+        rprintln!("contact");
+    }
 }
 
 fn move_servo(state: &mut State) -> MoveResult {
-    let mut step = 0;
+    let mut result = MoveResult::SameDirection;
 
     #[allow(clippy::collapsible_else_if)]
     if state.mode == ScanMode::ScanDown {
         if state.current_step == 0 {
             state.mode = ScanMode::ScanUp;
+            result = MoveResult::ChangeDirection;
         } else {
-            step = -1;
+            state.current_step -= 1;
         }
     } else {
         if state.current_step == state.total_steps - 1 {
             state.mode = ScanMode::ScanDown;
+            result = MoveResult::ChangeDirection;
         } else {
-            step = 1;
+            state.current_step += 1;
         }
     }
 
-    if step != 0 {
-        state.current_step += step;
-
+    if result == MoveResult::SameDirection {
         let fraction = state.current_step as f32 / state.total_steps as f32;
         state.servo.fraction(fraction);
 
         START_RANGING.call_at(state.ticker.now() + SERVO_STEP_TIME);
-        MoveResult::SameDirection
     } else {
         START_RANGING.call();
-        MoveResult::ChangeDirection
     }
+
+    result
 }
 
 pub fn start(
@@ -180,6 +197,7 @@ pub fn start(
         mode: ScanMode::Baseline(Calibration::new()),
         current_step: 0,
         total_steps: 50, // TODO set from the pot angle
+        baseline: [0; MAX_STEPS],
     });
 
     event_queue.bind(&START_RANGING);
