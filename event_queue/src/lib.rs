@@ -130,6 +130,13 @@ impl<'h> Event<'h> {
         }
     }
 
+    // Cancel posting of the event.
+    pub fn cancel(&self) {
+        critical_section::with(|cs| {
+            self.state.replace(cs, EventState::Done);
+        });
+    }
+
     // Post event into message queue for immediate dispatch.
     // This function is interrupt-safe.
     pub fn call(&self) {

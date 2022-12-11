@@ -6,6 +6,7 @@ mod error;
 mod event_queue;
 mod ranging;
 mod system_time;
+mod targeting;
 
 use crate::board::Board;
 use cortex_m_rt::entry;
@@ -26,7 +27,7 @@ fn main() -> ! {
     let board = Board::new(cp, dp).unwrap();
     let mut queue = event_queue::EventQueue::new(board.ticker);
 
-    ranging::start(
+    let num_steps = ranging::start(
         board.ticker,
         &mut queue,
         board.sensor,
@@ -35,6 +36,16 @@ fn main() -> ! {
             *board.adc_ratio.numer() as usize,
             *board.adc_ratio.denom() as usize,
         ),
+    )
+    .unwrap();
+
+    targeting::start(
+        board.ticker,
+        &mut queue,
+        board.target_lock_led,
+        board.laser_led,
+        board.laser_servo,
+        num_steps,
     )
     .unwrap();
 

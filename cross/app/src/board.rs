@@ -25,11 +25,11 @@ pub type Sensor = VL53L1X<I2cBus>;
 type SensorServoPin = PA8<Alternate<PushPull>>;
 pub type SensorServo = Servo<PwmChannel<TIM1, 0>>;
 
-type Laser = PA5<Output<PushPull>>;
+pub type Laser = PA5<Output<PushPull>>;
 type LaserServoPin = PA9<Alternate<PushPull>>;
-type LaserServo = Servo<PwmChannel<TIM1, 1>>;
+pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
 
-type Led = PB3<Output<PushPull>>;
+pub type Led = PB3<Output<PushPull>>;
 type Button = PB5<Input<PullDown>>;
 
 pub struct Board {

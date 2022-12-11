@@ -2,11 +2,12 @@ use crate::board::{Sensor, SensorServo};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue, ExtEvent};
 use crate::system_time::{Duration, Ticker};
+use crate::targeting;
 
 use calibration::Calibration;
 use core::cell::{RefCell, RefMut};
 use num::rational::Ratio;
-use num::Zero;
+use num::{One, Zero};
 use rtt_target::rprintln;
 use vl53l1x::{DistanceMode, TimingBudget};
 
@@ -110,9 +111,12 @@ fn read_sensor() -> Result<(), Error> {
             READ_SENSOR.call_at(state.ticker.now() + SENSOR_INTERMEASURMENT_TIME);
         }
     } else {
-        process_scan(state.baseline[state.current_step], distance);
+        process_scan(state, distance)?;
         state.sensor.stop_ranging()?;
-        move_servo(state)?;
+
+        if move_servo(state)? == MoveResult::ChangeDirection {
+            targeting::reset()?;
+        }
     }
 
     Ok(())
@@ -140,12 +144,13 @@ fn process_calibration(calibration: &mut Calibration, distance: u16) -> Calibrat
     }
 }
 
-fn process_scan(threshold: u16, distance: u16) {
+fn process_scan(state: &State, distance: u16) -> Result<(), Error> {
     rprintln!("run {}", distance);
 
-    if distance < threshold {
-        rprintln!("contact");
-    }
+    targeting::report(
+        state.current_step as u16,
+        distance < state.baseline[state.current_step],
+    )
 }
 
 fn move_servo(state: &mut State) -> Result<MoveResult, Error> {
@@ -169,7 +174,6 @@ fn move_servo(state: &mut State) -> Result<MoveResult, Error> {
     }
 
     if result == MoveResult::SameDirection {
-        rprintln!("set step {} of {}", state.current_step, state.total_steps);
         state.servo.set(Ratio::new(
             state.current_step as u16,
             state.total_steps as u16,
@@ -189,7 +193,11 @@ pub fn start(
     mut sensor: Sensor,
     mut servo: SensorServo,
     scale: Ratio<usize>,
-) -> Result<(), Error> {
+) -> Result<u16, Error> {
+    if scale > Ratio::one() {
+        return Err(Error::InvalidScale);
+    }
+
     let total_steps = (Ratio::from_integer(MAX_STEPS) * scale).to_integer();
     rprintln!("using {} steps", total_steps);
 
@@ -213,5 +221,5 @@ pub fn start(
     event_queue.bind(&READ_SENSOR);
     START_RANGING.call_at(ticker.now() + SERVO_RESET_TIME);
 
-    Ok(())
+    Ok(total_steps as u16)
 }

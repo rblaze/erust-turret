@@ -7,6 +7,7 @@ pub enum Error {
     Servo(servo::Error),
     Sensor(vl53l1x::Error<nb::Error<stm32f1xx_hal::i2c::Error>>),
     InvalidDuration,
+    InvalidScale,
     ConversionError(TryFromIntError),
     UnexpectedlyBlocks,
     Uninitialized,
