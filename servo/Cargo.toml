@@ -5,3 +5,7 @@ edition = "2021"
 
 [dependencies]
 embedded-hal = "0.2.7"
+
+[dependencies.num]
+version = "0.4.0"
+default-features = false

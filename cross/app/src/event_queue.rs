@@ -20,13 +20,13 @@ impl<'h> ExtEvent for Event<'h> {
     }
 }
 
-pub struct EventQueue<'t, 'e, 'h> {
+pub struct EventQueue<'e, 'h> {
     queue: event_queue::EventQueue<'e, 'h>,
-    ticker: &'t Ticker,
+    ticker: Ticker,
 }
 
-impl<'t, 'e, 'h> EventQueue<'t, 'e, 'h> {
-    pub fn new(ticker: &'t Ticker) -> Self {
+impl<'e, 'h> EventQueue<'e, 'h> {
+    pub fn new(ticker: Ticker) -> Self {
         EventQueue {
             queue: event_queue::EventQueue::new(),
             ticker,

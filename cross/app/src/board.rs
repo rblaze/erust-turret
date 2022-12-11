@@ -3,6 +3,7 @@
 use crate::error::Error;
 use crate::system_time::Ticker;
 
+use num::rational::Ratio;
 use rtt_target::rprintln;
 use servo::{Bounds, Servo};
 use stm32f1xx_hal::device::{I2C1, TIM1};
@@ -39,8 +40,7 @@ pub struct Board {
     pub sensor_servo: SensorServo,
     pub target_lock_led: Led,
     pub button: Button,
-    pub adc_value: u16,
-    pub adc_max: u16,
+    pub adc_ratio: Ratio<u16>,
 }
 
 impl Board {
@@ -77,6 +77,8 @@ impl Board {
             adc_value = adc_max / 10;
         }
 
+        let adc_ratio = Ratio::new(adc_value, adc_max);
+
         // Disable JTAG to get PB3 (mistake in board design)
         let (_, pb3, _) = afio.mapr.disable_jtag(gpioa.pa15, gpiob.pb3, gpiob.pb4);
 
@@ -104,14 +106,13 @@ impl Board {
             .ok_or(Error::InvalidDuration)?;
         let period_ms = period.to_millis().try_into()?;
 
-        let bounds = Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, adc_value, adc_max);
+        let bounds = Bounds::scale_from_period_ms(&sensor_servo_pwm, period_ms, adc_ratio)?;
+        rprintln!("sensor {}", bounds);
         let mut sensor_servo = Servo::new(sensor_servo_pwm, bounds);
-        sensor_servo.percent(50);
         sensor_servo.enable();
 
-        let bounds = Bounds::scale_from_period_ms(&laser_servo_pwm, period_ms, adc_value, adc_max);
+        let bounds = Bounds::scale_from_period_ms(&laser_servo_pwm, period_ms, adc_ratio)?;
         let mut laser_servo = Servo::new(laser_servo_pwm, bounds);
-        laser_servo.percent(50);
         laser_servo.enable();
 
         let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
@@ -142,8 +143,7 @@ impl Board {
             sensor_servo,
             target_lock_led,
             button,
-            adc_value,
-            adc_max,
+            adc_ratio,
         })
     }
 }

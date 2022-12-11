@@ -5,6 +5,8 @@ use crate::system_time::{Duration, Ticker};
 
 use calibration::Calibration;
 use core::cell::{RefCell, RefMut};
+use num::rational::Ratio;
+use num::Zero;
 use rtt_target::rprintln;
 use vl53l1x::{DistanceMode, TimingBudget};
 
@@ -102,7 +104,7 @@ fn read_sensor() -> Result<(), Error> {
             state.baseline[state.current_step] = threshold;
             state.mode = ScanMode::Baseline(Calibration::new());
             state.sensor.stop_ranging()?;
-            move_servo(state);
+            move_servo(state)?;
         } else {
             // Get next scan in 200 ms
             READ_SENSOR.call_at(state.ticker.now() + SENSOR_INTERMEASURMENT_TIME);
@@ -110,7 +112,7 @@ fn read_sensor() -> Result<(), Error> {
     } else {
         process_scan(state.baseline[state.current_step], distance);
         state.sensor.stop_ranging()?;
-        move_servo(state);
+        move_servo(state)?;
     }
 
     Ok(())
@@ -146,7 +148,7 @@ fn process_scan(threshold: u16, distance: u16) {
     }
 }
 
-fn move_servo(state: &mut State) -> MoveResult {
+fn move_servo(state: &mut State) -> Result<MoveResult, Error> {
     let mut result = MoveResult::SameDirection;
 
     #[allow(clippy::collapsible_else_if)]
@@ -167,29 +169,31 @@ fn move_servo(state: &mut State) -> MoveResult {
     }
 
     if result == MoveResult::SameDirection {
-        let fraction = state.current_step as f32 / state.total_steps as f32;
-        state.servo.fraction(fraction);
+        rprintln!("set step {} of {}", state.current_step, state.total_steps);
+        state.servo.set(Ratio::new(
+            state.current_step as u16,
+            state.total_steps as u16,
+        ))?;
 
         START_RANGING.call_at(state.ticker.now() + SERVO_STEP_TIME);
     } else {
         START_RANGING.call();
     }
 
-    result
+    Ok(result)
 }
 
 pub fn start(
     ticker: Ticker,
-    event_queue: &mut EventQueue<'_, '_, 'static>,
+    event_queue: &mut EventQueue<'_, 'static>,
     mut sensor: Sensor,
     mut servo: SensorServo,
-    angle_setting: u16,
-    angle_max: u16,
+    scale: Ratio<usize>,
 ) -> Result<(), Error> {
-    let total_steps = MAX_STEPS * angle_setting as usize / angle_max as usize;
+    let total_steps = (Ratio::from_integer(MAX_STEPS) * scale).to_integer();
     rprintln!("using {} steps", total_steps);
 
-    servo.fraction(0.0);
+    servo.set(Ratio::zero())?;
 
     sensor.set_timing_budget(TimingBudget::Ms100)?;
     sensor.set_distance_mode(DistanceMode::Long)?;

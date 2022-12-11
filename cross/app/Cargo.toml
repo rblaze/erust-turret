@@ -22,6 +22,10 @@ stm32f1xx-hal = { version = "0.9.0", features = ["stm32f103", "rt", "medium"] }
 panic-probe = { version = "0.3.0", features = ["print-rtt"] }
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 
+[dependencies.num]
+version = "0.4.0"
+default-features = false
+
 [[bin]]
 name = "erust-turret"
 test = false

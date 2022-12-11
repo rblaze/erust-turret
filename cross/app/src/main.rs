@@ -9,6 +9,7 @@ mod system_time;
 
 use crate::board::Board;
 use cortex_m_rt::entry;
+use num::rational::Ratio;
 use rtt_target::rtt_init_print;
 use stm32f1xx_hal::pac;
 
@@ -23,15 +24,17 @@ fn main() -> ! {
     let dp = pac::Peripherals::take().unwrap();
 
     let board = Board::new(cp, dp).unwrap();
-    let mut queue = event_queue::EventQueue::new(&board.ticker);
+    let mut queue = event_queue::EventQueue::new(board.ticker);
 
     ranging::start(
         board.ticker,
         &mut queue,
         board.sensor,
         board.sensor_servo,
-        board.adc_value,
-        board.adc_max,
+        Ratio::new(
+            *board.adc_ratio.numer() as usize,
+            *board.adc_ratio.denom() as usize,
+        ),
     )
     .unwrap();
 

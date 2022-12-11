@@ -34,7 +34,6 @@ impl Ticker {
     }
 
     // Get timestamp
-    #[allow(dead_code)]
     pub fn now(&self) -> Instant {
         let ticks = self.get_ticks();
         Instant::from_ticks(ticks)
