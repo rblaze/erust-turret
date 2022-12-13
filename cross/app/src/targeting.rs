@@ -180,6 +180,42 @@ impl StaticState {
 // Therefore, no locking is necessary.
 unsafe impl Sync for StaticState {}
 
+pub struct Targeting;
+
+impl Targeting {
+    pub fn new(
+        ticker: Ticker,
+        event_queue: &mut EventQueue<'_, 'static>,
+        led: Led,
+        laser: Laser,
+        servo: LaserServo,
+        total_steps: u16,
+    ) -> Result<Self, Error> {
+        event_queue.bind(&LASER_OFF);
+        event_queue.bind(&TARGET_LOST);
+
+        *STATE.get() = Some(State::init(ticker, led, laser, servo, total_steps)?);
+
+        Ok(Targeting {})
+    }
+
+    pub fn reset(&self) -> Result<(), Error> {
+        let mut stref = STATE.get();
+        let state = stref.as_mut().ok_or(Error::Uninitialized)?;
+
+        state.reset();
+
+        Ok(())
+    }
+
+    pub fn report(&self, position: u16, contact: bool) -> Result<(), Error> {
+        let mut stref = STATE.get();
+        let state = stref.as_mut().ok_or(Error::Uninitialized)?;
+
+        state.report(position, contact)
+    }
+}
+
 static STATE: StaticState = StaticState::new();
 
 static LASER_OFF: Event = Event::new(&|| laser_off().unwrap());
@@ -196,36 +232,4 @@ fn laser_off() -> Result<(), Error> {
 
 fn target_lost() {
     rprintln!("AUDIO: target lost");
-}
-
-pub fn start(
-    ticker: Ticker,
-    event_queue: &mut EventQueue<'_, 'static>,
-    led: Led,
-    laser: Laser,
-    servo: LaserServo,
-    total_steps: u16,
-) -> Result<(), Error> {
-    event_queue.bind(&LASER_OFF);
-    event_queue.bind(&TARGET_LOST);
-
-    *STATE.get() = Some(State::init(ticker, led, laser, servo, total_steps)?);
-
-    Ok(())
-}
-
-pub fn reset() -> Result<(), Error> {
-    let mut stref = STATE.get();
-    let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-    state.reset();
-
-    Ok(())
-}
-
-pub fn report(position: u16, contact: bool) -> Result<(), Error> {
-    let mut stref = STATE.get();
-    let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-    state.report(position, contact)
 }

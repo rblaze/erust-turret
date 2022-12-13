@@ -2,7 +2,7 @@ use crate::board::{Sensor, SensorServo};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue, ExtEvent};
 use crate::system_time::{Duration, Ticker};
-use crate::targeting;
+use crate::targeting::Targeting;
 
 use calibration::Calibration;
 use core::cell::{RefCell, RefMut};
@@ -40,6 +40,7 @@ enum ScanMode {
 }
 
 struct Ranging {
+    targeting: Targeting,
     ticker: Ticker,
     sensor: Sensor,
     servo: SensorServo,
@@ -55,13 +56,13 @@ impl Ranging {
         mut sensor: Sensor,
         mut servo: SensorServo,
         total_steps: usize,
+        targeting: Targeting,
     ) -> Result<Self, Error> {
-        servo.set(Ratio::zero())?;
-
         sensor.set_timing_budget(TimingBudget::Ms100)?;
         sensor.set_distance_mode(DistanceMode::Long)?;
         sensor.set_inter_measurement(SENSOR_INTERMEASURMENT_TIME.convert())?;
 
+        servo.set(Ratio::zero())?;
         START_RANGING.call_at(ticker.now() + SERVO_RESET_TIME);
 
         Ok(Ranging {
@@ -72,6 +73,7 @@ impl Ranging {
             current_step: 0,
             total_steps,
             baseline: [0; MAX_STEPS],
+            targeting,
         })
     }
 
@@ -110,7 +112,7 @@ impl Ranging {
             self.sensor.stop_ranging()?;
 
             if self.move_servo()? == MoveResult::ChangeDirection {
-                targeting::reset()?;
+                self.targeting.reset()?;
             }
         }
 
@@ -142,7 +144,7 @@ impl Ranging {
     fn process_scan(&self, distance: u16) -> Result<(), Error> {
         rprintln!("run {}", distance);
 
-        targeting::report(
+        self.targeting.report(
             self.current_step as u16,
             distance < self.baseline[self.current_step],
         )
@@ -224,24 +226,30 @@ fn read_sensor() -> Result<(), Error> {
     state.read_sensor()
 }
 
+pub fn get_num_steps_from_angle_scale(scale: Ratio<u16>) -> Result<usize, Error> {
+    if scale > Ratio::one() {
+        return Err(Error::InvalidScale);
+    }
+
+    let long_scale = Ratio::new((*scale.numer()).into(), (*scale.denom()).into());
+    let total_steps = (Ratio::from_integer(MAX_STEPS) * long_scale).to_integer();
+    rprintln!("using {} steps", total_steps);
+
+    Ok(total_steps)
+}
+
 pub fn start(
     ticker: Ticker,
     event_queue: &mut EventQueue<'_, 'static>,
     sensor: Sensor,
     servo: SensorServo,
-    scale: Ratio<usize>,
-) -> Result<u16, Error> {
-    if scale > Ratio::one() {
-        return Err(Error::InvalidScale);
-    }
-
-    let total_steps = (Ratio::from_integer(MAX_STEPS) * scale).to_integer();
-    rprintln!("using {} steps", total_steps);
-
+    num_steps: usize,
+    targeting: Targeting,
+) -> Result<(), Error> {
     event_queue.bind(&START_RANGING);
     event_queue.bind(&READ_SENSOR);
 
-    *STATE.get() = Some(Ranging::init(ticker, sensor, servo, total_steps)?);
+    *STATE.get() = Some(Ranging::init(ticker, sensor, servo, num_steps, targeting)?);
 
-    Ok(total_steps as u16)
+    Ok(())
 }
