@@ -5,7 +5,7 @@ use crate::system_time::{Duration, Ticker};
 use crate::targeting::Targeting;
 
 use calibration::Calibration;
-use core::cell::{RefCell, RefMut};
+use core::cell::RefCell;
 use num::rational::Ratio;
 use num::{One, Zero};
 use rtt_target::rprintln;
@@ -196,8 +196,15 @@ impl StaticState {
         }
     }
 
-    fn get(&self) -> RefMut<Option<Ranging>> {
-        self.state.borrow_mut()
+    fn set(&self, state: Ranging) {
+        *self.state.borrow_mut() = Some(state);
+    }
+
+    fn with(&self, f: fn(&mut Ranging) -> Result<(), Error>) {
+        let mut stref = self.state.borrow_mut();
+        let state = stref.as_mut().ok_or(Error::Uninitialized).unwrap();
+
+        f(state).unwrap();
     }
 }
 
@@ -207,24 +214,8 @@ unsafe impl Sync for StaticState {}
 
 static STATE: StaticState = StaticState::new();
 
-static START_RANGING: Event = Event::new(&|| start_ranging().unwrap());
-static READ_SENSOR: Event = Event::new(&|| read_sensor().unwrap());
-
-// Preconditions: servo positioned, sensor off.
-// Postcondition: sensor started.
-fn start_ranging() -> Result<(), Error> {
-    let mut stref = STATE.get();
-    let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-    state.start_measurement()
-}
-
-fn read_sensor() -> Result<(), Error> {
-    let mut stref = STATE.get();
-    let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-    state.read_sensor()
-}
+static START_RANGING: Event = Event::new(&|| STATE.with(|state| state.start_measurement()));
+static READ_SENSOR: Event = Event::new(&|| STATE.with(|state| state.read_sensor()));
 
 pub fn get_num_steps_from_angle_scale(scale: Ratio<u16>) -> Result<usize, Error> {
     if scale > Ratio::one() {
@@ -249,7 +240,7 @@ pub fn start(
     event_queue.bind(&START_RANGING);
     event_queue.bind(&READ_SENSOR);
 
-    *STATE.get() = Some(Ranging::init(ticker, sensor, servo, num_steps, targeting)?);
+    STATE.set(Ranging::init(ticker, sensor, servo, num_steps, targeting)?);
 
     Ok(())
 }

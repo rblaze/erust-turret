@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::event_queue::{Event, EventQueue, ExtEvent};
 use crate::system_time::{Duration, Instant, Ticker};
 
-use core::cell::{RefCell, RefMut};
+use core::cell::RefCell;
 use core::cmp::{max, min};
 use num::rational::Ratio;
 use num::Zero;
@@ -171,8 +171,18 @@ impl StaticState {
         }
     }
 
-    fn get(&self) -> RefMut<Option<State>> {
-        self.state.borrow_mut()
+    fn set(&self, state: State) {
+        *self.state.borrow_mut() = Some(state);
+    }
+
+    fn with<F, R>(&self, f: F) -> Result<R, Error>
+    where
+        F: Fn(&mut State) -> Result<R, Error>,
+    {
+        let mut stref = self.state.borrow_mut();
+        let state = stref.as_mut().ok_or(Error::Uninitialized)?;
+
+        f(state)
     }
 }
 
@@ -194,42 +204,33 @@ impl Targeting {
         event_queue.bind(&LASER_OFF);
         event_queue.bind(&TARGET_LOST);
 
-        *STATE.get() = Some(State::init(ticker, led, laser, servo, total_steps)?);
+        STATE.set(State::init(ticker, led, laser, servo, total_steps)?);
 
         Ok(Targeting {})
     }
 
+    // NOT interrupt-safe
     pub fn reset(&self) -> Result<(), Error> {
-        let mut stref = STATE.get();
-        let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-        state.reset();
-
-        Ok(())
+        STATE.with(|state| {
+            state.reset();
+            Ok(())
+        })
     }
 
+    // NOT interrupt-safe
     pub fn report(&self, position: u16, contact: bool) -> Result<(), Error> {
-        let mut stref = STATE.get();
-        let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-        state.report(position, contact)
+        STATE.with(|state| state.report(position, contact))
     }
 }
 
 static STATE: StaticState = StaticState::new();
 
-static LASER_OFF: Event = Event::new(&|| laser_off().unwrap());
-static TARGET_LOST: Event = Event::new(&target_lost);
-
-fn laser_off() -> Result<(), Error> {
-    let mut stref = STATE.get();
-    let state = stref.as_mut().ok_or(Error::Uninitialized)?;
-
-    state.laser_off();
-
-    Ok(())
-}
-
-fn target_lost() {
-    rprintln!("AUDIO: target lost");
-}
+static LASER_OFF: Event = Event::new(&|| {
+    STATE
+        .with(|state| {
+            state.laser_off();
+            Ok(())
+        })
+        .unwrap()
+});
+static TARGET_LOST: Event = Event::new(&|| rprintln!("AUDIO: target lost"));
