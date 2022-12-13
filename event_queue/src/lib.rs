@@ -102,11 +102,11 @@ impl<'h> Debug for Handler<'h> {
 
 #[derive(Debug)]
 pub struct Event<'h> {
-    // Only changes in EventQueue::bind()
+    // Only changes in EventQueue::bind(), no locking necessary.
     link: LinkedListLink,
     state: Mutex<RefCell<EventState>>,
     period: Mutex<Cell<Option<TICKS>>>,
-    handler: RefCell<Handler<'h>>, // Never changes
+    handler: RefCell<Handler<'h>>, // Never changes, no locking necessary.
 }
 
 unsafe impl<'h> Sync for Event<'h> {}
@@ -130,7 +130,8 @@ impl<'h> Event<'h> {
         }
     }
 
-    // Cancel posting of the event.
+    // Cancel dispatch of the event.
+    // This function is interrupt-safe.
     pub fn cancel(&self) {
         critical_section::with(|cs| {
             self.state.replace(cs, EventState::Done);
