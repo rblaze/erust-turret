@@ -1,3 +1,4 @@
+use crate::audio::{Audio, Sound};
 use crate::board::{Sensor, SensorServo};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue, ExtEvent};
@@ -41,6 +42,7 @@ enum ScanMode {
 
 struct Ranging {
     targeting: Targeting,
+    audio: Audio,
     ticker: Ticker,
     sensor: Sensor,
     servo: SensorServo,
@@ -57,6 +59,7 @@ impl Ranging {
         mut servo: SensorServo,
         total_steps: usize,
         targeting: Targeting,
+        audio: Audio,
     ) -> Result<Self, Error> {
         sensor.set_timing_budget(TimingBudget::Ms100)?;
         sensor.set_distance_mode(DistanceMode::Long)?;
@@ -65,7 +68,11 @@ impl Ranging {
         servo.set(Ratio::zero())?;
         START_RANGING.call_at(ticker.now() + SERVO_RESET_TIME);
 
+        audio.play(Sound::Startup);
+
         Ok(Ranging {
+            targeting,
+            audio,
             ticker,
             sensor,
             servo,
@@ -73,7 +80,6 @@ impl Ranging {
             current_step: 0,
             total_steps,
             baseline: [0; MAX_STEPS],
-            targeting,
         })
     }
 
@@ -163,6 +169,11 @@ impl Ranging {
             }
         } else {
             if self.current_step == self.total_steps - 1 {
+                if let ScanMode::Baseline(_) = self.mode {
+                    // End of calibration, start looking for targets.
+                    self.audio.play(Sound::BeginScan);
+                }
+
                 self.mode = ScanMode::ScanDown;
                 result = MoveResult::ChangeDirection;
             } else {
@@ -236,11 +247,14 @@ pub fn start(
     servo: SensorServo,
     num_steps: usize,
     targeting: Targeting,
+    audio: Audio,
 ) -> Result<(), Error> {
     event_queue.bind(&START_RANGING);
     event_queue.bind(&READ_SENSOR);
 
-    STATE.set(Ranging::init(ticker, sensor, servo, num_steps, targeting)?);
+    STATE.set(Ranging::init(
+        ticker, sensor, servo, num_steps, targeting, audio,
+    )?);
 
     Ok(())
 }

@@ -1,3 +1,4 @@
+use crate::audio::{Audio, Sound};
 use crate::board::{Laser, LaserServo, Led};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue, ExtEvent};
@@ -7,7 +8,6 @@ use core::cell::RefCell;
 use core::cmp::{max, min};
 use num::rational::Ratio;
 use num::Zero;
-use rtt_target::rprintln;
 
 const MIN_TARGET_LOCK_RANGE: u16 = 8;
 const MAX_TARGET_BREAK_RANGE: u16 = 4;
@@ -36,6 +36,7 @@ struct State {
     laser: Laser,
     servo: LaserServo,
     total_steps: u16,
+    audio: Audio,
 }
 
 impl State {
@@ -45,6 +46,7 @@ impl State {
         laser: Laser,
         mut servo: LaserServo,
         total_steps: u16,
+        audio: Audio,
     ) -> Result<Self, Error> {
         servo.set(Ratio::zero())?;
 
@@ -56,6 +58,7 @@ impl State {
             laser,
             servo,
             total_steps,
+            audio,
         })
     }
 
@@ -67,7 +70,7 @@ impl State {
         self.laser.set_low();
         self.last_lock = self.ticker.now();
 
-        rprintln!("AUDIO: contact lost");
+        self.audio.play(Sound::ContactLost);
         TARGET_LOST.call_at(self.ticker.now() + TARGET_LOST_DELAY);
     }
 
@@ -106,9 +109,9 @@ impl State {
 
                 if high_side - low_side == MIN_TARGET_LOCK_RANGE {
                     if self.ticker.now() - self.last_lock >= TARGET_ACQUIRED_INTERVAL {
-                        rprintln!("AUDIO: target acquired");
+                        self.audio.play(Sound::TargetAcquired);
                     } else {
-                        rprintln!("AUDIO: contact restored");
+                        self.audio.play(Sound::ContactRestored);
                     }
                     self.set_lock(start_position, position)?;
                 }
@@ -200,11 +203,12 @@ impl Targeting {
         laser: Laser,
         servo: LaserServo,
         total_steps: u16,
+        audio: Audio,
     ) -> Result<Self, Error> {
         event_queue.bind(&LASER_OFF);
         event_queue.bind(&TARGET_LOST);
 
-        STATE.set(State::init(ticker, led, laser, servo, total_steps)?);
+        STATE.set(State::init(ticker, led, laser, servo, total_steps, audio)?);
 
         Ok(Targeting {})
     }
@@ -233,4 +237,11 @@ static LASER_OFF: Event = Event::new(&|| {
         })
         .unwrap()
 });
-static TARGET_LOST: Event = Event::new(&|| rprintln!("AUDIO: target lost"));
+static TARGET_LOST: Event = Event::new(&|| {
+    STATE
+        .with(|state| {
+            state.audio.play(Sound::TargetLost);
+            Ok(())
+        })
+        .unwrap()
+});
