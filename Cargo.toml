@@ -3,5 +3,6 @@ members = [
   "calibration",
   "event_queue",
   "servo",
+  "spi-memory",
   "VL53L1X",
 ]
