@@ -218,6 +218,7 @@ dependencies = [
  "panic-probe",
  "rtt-target",
  "servo",
+ "sound-storage",
  "stm32f1xx-hal",
  "vl53l1x",
 ]
@@ -618,6 +619,23 @@ name = "shlex"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fdf1b9db47230893d76faad238fd6097fd6d6a9245cd7a4d90dbd639536bbd2"
+
+[[package]]
+name = "sound-storage"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal",
+ "littlefs2",
+ "spi-memory",
+]
+
+[[package]]
+name = "spi-memory"
+version = "0.3.0"
+dependencies = [
+ "bitflags",
+ "embedded-hal",
+]
 
 [[package]]
 name = "spin"

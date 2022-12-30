@@ -4,7 +4,7 @@ use crate::{utils::HexSlice, BlockDevice, Error, Read};
 use bitflags::bitflags;
 use core::convert::TryInto;
 use core::fmt;
-use embedded_hal::blocking::spi::Transfer;
+use embedded_hal::blocking::spi::{Transfer, Write};
 use embedded_hal::digital::v2::OutputPin;
 
 /// 3-Byte JEDEC manufacturer and device identification.
@@ -28,8 +28,8 @@ impl Identification {
 
         // Find the end of the continuation bytes (0x7F)
         let mut start_idx = 0;
-        for i in 0..(buf.len() - 2) {
-            if buf[i] != 0x7F {
+        for (i, byte) in buf.iter().enumerate().take(buf.len() - 2) {
+            if *byte != 0x7F {
                 start_idx = i;
                 break;
             }
@@ -113,7 +113,7 @@ bitflags! {
 /// * **`CS`**: The **C**hip-**S**elect line attached to the `\CS`/`\CE` pin of
 ///   the flash chip.
 #[derive(Debug)]
-pub struct Flash<SPI: Transfer<u8>, CS: OutputPin> {
+pub struct Flash<SPI, CS> {
     spi: SPI,
     cs: CS,
 }
@@ -127,7 +127,7 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS> {
     ///   mode for the device.
     /// * **`cs`**: The **C**hip-**S**elect Pin connected to the `\CS`/`\CE` pin
     ///   of the flash chip. Will be driven low when accessing the device.
-    pub fn init(spi: SPI, cs: CS) -> Result<Self, Error<SPI, CS>> {
+    pub fn init(spi: SPI, cs: CS) -> Result<Self, Error<SPI::Error, CS::Error>> {
         let mut this = Self { spi, cs };
         let status = this.read_status()?;
         info!("Flash::init: status = {:?}", status);
@@ -141,41 +141,43 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Flash<SPI, CS> {
         Ok(this)
     }
 
-    fn command(&mut self, bytes: &mut [u8]) -> Result<(), Error<SPI, CS>> {
+    fn command<'a>(
+        &mut self,
+        bytes: &'a mut [u8],
+    ) -> Result<&'a [u8], Error<SPI::Error, CS::Error>> {
         // If the SPI transfer fails, make sure to disable CS anyways
         self.cs.set_low().map_err(Error::Gpio)?;
         let spi_result = self.spi.transfer(bytes).map_err(Error::Spi);
         self.cs.set_high().map_err(Error::Gpio)?;
-        spi_result?;
-        Ok(())
+        spi_result
     }
 
     /// Reads the JEDEC manufacturer/device identification.
-    pub fn read_jedec_id(&mut self) -> Result<Identification, Error<SPI, CS>> {
+    pub fn read_jedec_id(&mut self) -> Result<Identification, Error<SPI::Error, CS::Error>> {
         // Optimistically read 12 bytes, even though some identifiers will be shorter
         let mut buf: [u8; 12] = [0; 12];
         buf[0] = Opcode::ReadJedecId as u8;
-        self.command(&mut buf)?;
+        let response = self.command(&mut buf)?;
 
         // Skip buf[0] (SPI read response byte)
-        Ok(Identification::from_jedec_id(&buf[1..]))
+        Ok(Identification::from_jedec_id(&response[1..]))
     }
 
     /// Reads the status register.
-    pub fn read_status(&mut self) -> Result<Status, Error<SPI, CS>> {
+    pub fn read_status(&mut self) -> Result<Status, Error<SPI::Error, CS::Error>> {
         let mut buf = [Opcode::ReadStatus as u8, 0];
-        self.command(&mut buf)?;
+        let response = self.command(&mut buf)?;
 
-        Ok(Status::from_bits_truncate(buf[1]))
+        Ok(Status::from_bits_truncate(response[1]))
     }
 
-    fn write_enable(&mut self) -> Result<(), Error<SPI, CS>> {
+    fn write_enable(&mut self) -> Result<(), Error<SPI::Error, CS::Error>> {
         let mut cmd_buf = [Opcode::WriteEnable as u8];
         self.command(&mut cmd_buf)?;
         Ok(())
     }
 
-    fn wait_done(&mut self) -> Result<(), Error<SPI, CS>> {
+    fn wait_done(&mut self) -> Result<(), Error<SPI::Error, CS::Error>> {
         // TODO: Consider changing this to a delay based pattern
         while self.read_status()?.contains(Status::BUSY) {}
         Ok(())
@@ -195,7 +197,7 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Read<u32, SPI, CS> for Flash<SPI, CS> {
     ///
     /// * `addr`: 24-bit address to start reading at.
     /// * `buf`: Destination buffer to fill.
-    fn read(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error<SPI, CS>> {
+    fn read(&mut self, addr: u32, buf: &mut [u8]) -> Result<(), Error<SPI::Error, CS::Error>> {
         // TODO what happens if `buf` is empty?
 
         let mut cmd_buf = [
@@ -215,9 +217,18 @@ impl<SPI: Transfer<u8>, CS: OutputPin> Read<u32, SPI, CS> for Flash<SPI, CS> {
     }
 }
 
-impl<SPI: Transfer<u8>, CS: OutputPin> BlockDevice<u32, SPI, CS> for Flash<SPI, CS> {
-    fn erase_sectors(&mut self, addr: u32, amount: usize) -> Result<(), Error<SPI, CS>> {
-        for c in 0..amount {
+impl<SPI, CS, SpiError> BlockDevice<u32, SPI, CS> for Flash<SPI, CS>
+where
+    SPI: Write<u8, Error = SpiError>,
+    SPI: Transfer<u8, Error = SpiError>,
+    CS: OutputPin,
+{
+    fn erase_sectors(
+        &mut self,
+        addr: u32,
+        num_sectors: usize,
+    ) -> Result<(), Error<SpiError, CS::Error>> {
+        for c in 0..num_sectors {
             self.write_enable()?;
 
             let current_addr: u32 = (addr as usize + c * 256).try_into().unwrap();
@@ -234,8 +245,8 @@ impl<SPI: Transfer<u8>, CS: OutputPin> BlockDevice<u32, SPI, CS> for Flash<SPI, 
         Ok(())
     }
 
-    fn write_bytes(&mut self, addr: u32, data: &mut [u8]) -> Result<(), Error<SPI, CS>> {
-        for (c, chunk) in data.chunks_mut(256).enumerate() {
+    fn write_bytes(&mut self, addr: u32, data: &[u8]) -> Result<(), Error<SpiError, CS::Error>> {
+        for (c, chunk) in data.chunks(256).enumerate() {
             self.write_enable()?;
 
             let current_addr: u32 = (addr as usize + c * 256).try_into().unwrap();
@@ -247,18 +258,20 @@ impl<SPI: Transfer<u8>, CS: OutputPin> BlockDevice<u32, SPI, CS> for Flash<SPI, 
             ];
 
             self.cs.set_low().map_err(Error::Gpio)?;
-            let mut spi_result = self.spi.transfer(&mut cmd_buf);
-            if spi_result.is_ok() {
-                spi_result = self.spi.transfer(chunk);
+            let mut spi_error = self.spi.transfer(&mut cmd_buf).err();
+            if spi_error.is_none() {
+                spi_error = self.spi.write(chunk).err();
             }
             self.cs.set_high().map_err(Error::Gpio)?;
-            spi_result.map(|_| ()).map_err(Error::Spi)?;
+            if let Some(err) = spi_error {
+                Err(Error::Spi(err))?
+            }
             self.wait_done()?;
         }
         Ok(())
     }
 
-    fn erase_all(&mut self) -> Result<(), Error<SPI, CS>> {
+    fn erase_all(&mut self) -> Result<(), Error<SpiError, CS::Error>> {
         self.write_enable()?;
         let mut cmd_buf = [Opcode::ChipErase as u8];
         self.command(&mut cmd_buf)?;
