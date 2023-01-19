@@ -38,6 +38,12 @@ impl Ticker {
         let ticks = self.get_ticks();
         Instant::from_ticks(ticks)
     }
+
+    // Wait for the next tick.
+    // Makes sure the ticker is enabled.
+    pub fn wait_for_tick(&self) {
+        cortex_m::asm::wfi();
+    }
 }
 
 #[exception]

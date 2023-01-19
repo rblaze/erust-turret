@@ -130,8 +130,8 @@ impl Board {
         let mut sensor = VL53L1X::new(i2c, vl53l1x::ADDR);
 
         while sensor.boot_state()? != BootState::Booted {
-            // Wait 10 ms until next timer tick. Ticker must be enabled.
-            cortex_m::asm::wfi();
+            // Wait 10 ms until next timer tick.
+            ticker.wait_for_tick();
         }
         sensor.sensor_init()?;
 
