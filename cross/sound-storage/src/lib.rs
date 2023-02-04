@@ -16,6 +16,16 @@ pub struct SoundStorage<SPI, CS> {
     flash: RefCell<Flash<SPI, CS>>,
 }
 
+impl<SPI: Transfer<u8>, CS: OutputPin> SoundStorage<SPI, CS> {
+    pub fn new(spi: SPI, cs: CS) -> littlefs2::io::Result<Self> {
+        let flash = Flash::init(spi, cs).map_err(|_| Error::Io)?;
+
+        Ok(Self {
+            flash: RefCell::new(flash),
+        })
+    }
+}
+
 impl<SPI, CS, E> Storage for SoundStorage<SPI, CS>
 where
     SPI: Transfer<u8, Error = E> + Write<u8, Error = E>,

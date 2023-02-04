@@ -6,12 +6,14 @@ use crate::system_time::Ticker;
 use num::rational::Ratio;
 use rtt_target::rprintln;
 use servo::{Bounds, Servo};
+use sound_storage::SoundStorage;
 use stm32f1xx_hal::device::{I2C1, TIM1};
 use stm32f1xx_hal::gpio::{Alternate, Input, Output};
-use stm32f1xx_hal::gpio::{OpenDrain, PullDown, PushPull};
-use stm32f1xx_hal::gpio::{PA5, PA8, PA9, PB3, PB5, PB6, PB7};
+use stm32f1xx_hal::gpio::{Floating, OpenDrain, PullDown, PushPull};
+use stm32f1xx_hal::gpio::{PA4, PA5, PA8, PA9, PB12, PB13, PB14, PB15, PB3, PB5, PB6, PB7};
 use stm32f1xx_hal::i2c::{BlockingI2c, I2c, Mode};
 use stm32f1xx_hal::prelude::*;
+use stm32f1xx_hal::spi::{Spi, Spi2NoRemap};
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
 use stm32f1xx_hal::timer::{PwmChannel, Timer};
 use stm32f1xx_hal::{adc, pac};
@@ -19,8 +21,9 @@ use vl53l1x::{BootState, VL53L1X};
 
 const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
-type I2cPins = (PB6<Alternate<OpenDrain>>, PB7<Alternate<OpenDrain>>);
-type I2cBus = BlockingI2c<I2C1, I2cPins>;
+type I2cScl = PB6<Alternate<OpenDrain>>;
+type I2cSda = PB7<Alternate<OpenDrain>>;
+type I2cBus = BlockingI2c<I2C1, (I2cScl, I2cSda)>;
 pub type Sensor = VL53L1X<I2cBus>;
 type SensorServoPin = PA8<Alternate<PushPull>>;
 pub type SensorServo = Servo<PwmChannel<TIM1, 0>>;
@@ -32,6 +35,14 @@ pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
 pub type Led = PB3<Output<PushPull>>;
 type Button = PB5<Input<PullDown>>;
 
+type SpiCs = PB12<Output<PushPull>>;
+type SpiClk = PB13<Alternate<PushPull>>;
+type SpiMiso = PB14<Input<Floating>>;
+type SpiMosi = PB15<Alternate<PushPull>>;
+
+pub type AudioEnable = PA4<Output<PushPull>>;
+pub type Storage = SoundStorage<Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>, SpiCs>;
+
 pub struct Board {
     pub ticker: Ticker,
     pub laser_led: Laser,
@@ -41,6 +52,8 @@ pub struct Board {
     pub target_lock_led: Led,
     pub button: Button,
     pub adc_ratio: Ratio<u16>,
+    pub storage: Storage,
+    pub audio_enable: AudioEnable,
 }
 
 impl Board {
@@ -115,6 +128,24 @@ impl Board {
         let mut laser_servo = Servo::new(laser_servo_pwm, bounds);
         laser_servo.enable();
 
+        let ticker = Ticker::new(Timer::syst(cp.SYST, &clocks));
+
+        let spi_cs = gpiob.pb12.into_push_pull_output(&mut gpiob.crh);
+        let spi_clk = gpiob.pb13.into_alternate_push_pull(&mut gpiob.crh);
+        let spi_miso = gpiob.pb14.into_floating_input(&mut gpiob.crh);
+        let spi_mosi = gpiob.pb15.into_alternate_push_pull(&mut gpiob.crh);
+
+        let spi = Spi::spi2(
+            dp.SPI2,
+            (spi_clk, spi_miso, spi_mosi),
+            embedded_hal::spi::MODE_0,
+            10.MHz(),
+            clocks,
+        );
+
+        let storage = SoundStorage::new(spi, spi_cs)?;
+        let audio_enable = gpioa.pa4.into_push_pull_output(&mut gpioa.crl);
+
         let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);
         let sda = gpiob.pb7.into_alternate_open_drain(&mut gpiob.crl);
         let i2c = I2c::i2c1(
@@ -126,9 +157,7 @@ impl Board {
         )
         .blocking_default(clocks);
 
-        let ticker = Ticker::new(Timer::syst(cp.SYST, &clocks));
         let mut sensor = VL53L1X::new(i2c, vl53l1x::ADDR);
-
         while sensor.boot_state()? != BootState::Booted {
             // Wait 10 ms until next timer tick.
             ticker.wait_for_tick();
@@ -144,6 +173,8 @@ impl Board {
             target_lock_led,
             button,
             adc_ratio,
+            storage,
+            audio_enable,
         })
     }
 }
