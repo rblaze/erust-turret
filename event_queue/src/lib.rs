@@ -104,9 +104,12 @@ impl<'h> Debug for Handler<'h> {
 pub struct Event<'h> {
     // Only changes in EventQueue::bind(), no locking necessary.
     link: LinkedListLink,
+    // Protected.
     state: Mutex<RefCell<EventState>>,
+    // Protected.
     period: Mutex<Cell<Option<TICKS>>>,
-    handler: RefCell<Handler<'h>>, // Never changes, no locking necessary.
+    // Never changes, no locking necessary.
+    handler: RefCell<Handler<'h>>,
 }
 
 unsafe impl<'h> Sync for Event<'h> {}
@@ -156,7 +159,7 @@ impl<'h> Event<'h> {
 
     // Set period for repeatedly dispatching an event.
     // This function is interrupt-safe.
-    pub fn period(&mut self, period: TICKS) {
+    pub fn period(&self, period: TICKS) {
         critical_section::with(|cs| {
             self.period.borrow(cs).set(Some(period));
         });
@@ -268,7 +271,7 @@ mod tests {
             done.replace_with(|n| *n + 1);
         };
 
-        let mut event = Event::new(&handler);
+        let event = Event::new(&handler);
         event.period(100);
 
         let mut queue = EventQueue::new();
