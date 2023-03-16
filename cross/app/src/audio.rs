@@ -1,6 +1,7 @@
 use crate::board::{AudioEnable, Storage};
 use crate::error::Error;
 use core::cell::RefCell;
+use core::mem::transmute;
 use littlefs2::fs::Filesystem;
 use littlefs2::path::Path;
 use rtt_target::rprintln;
@@ -21,8 +22,8 @@ pub enum Sound {
 pub struct Audio;
 
 impl Audio {
-    pub fn new(storage: Storage, audio_enable: AudioEnable) -> Result<Audio, Error> {
-        STATE.set(State::init(storage, audio_enable)?);
+    pub fn new(fs: &Filesystem<'_, Storage>, audio_enable: AudioEnable) -> Result<Audio, Error> {
+        STATE.set(State::init(fs, audio_enable)?);
 
         Ok(Audio {})
     }
@@ -96,15 +97,17 @@ enum PlayState {
 }
 
 struct State {
-    storage: Storage,
+    fs: &'static Filesystem<'static, Storage>,
     audio_enable: AudioEnable,
     play_state: PlayState,
 }
 
 impl State {
-    fn init(storage: Storage, audio_enable: AudioEnable) -> Result<Self, Error> {
+    fn init(fs: &Filesystem<'_, Storage>, audio_enable: AudioEnable) -> Result<Self, Error> {
         Ok(State {
-            storage,
+            // The filesystem is never unmounted unless the program panics anyway.
+            // We can cast it to 'static lifetime.
+            fs: unsafe { transmute(fs) },
             audio_enable,
             play_state: PlayState::Idle,
         })
@@ -143,9 +146,8 @@ impl State {
             buf2: [0; BUF_SIZE],
         };
 
-        // Read first block into buffer and start playing it.
-        Filesystem::mount_and_then(&mut self.storage, |fs| {
-            fs.open_file_and_then(Path::from_bytes_with_nul(filename.as_bytes())?, |f| {
+        self.fs
+            .open_file_and_then(Path::from_bytes_with_nul(filename.as_bytes())?, |f| {
                 match &mut self.play_state {
                     PlayState::Playing {
                         offset,
@@ -168,12 +170,11 @@ impl State {
                     _ => unreachable!(),
                 }
             })
-        })
-        .map_err(|err| {
-            // First buffer read failed, bail out.
-            self.play_state = PlayState::Idle;
-            err
-        })?;
+            .map_err(|err| {
+                // First buffer read failed, bail out.
+                self.play_state = PlayState::Idle;
+                err
+            })?;
 
         Ok(())
     }
