@@ -2,6 +2,8 @@
 members = [
   "calibration",
   "event_queue",
+  "simplefs",
+  "simplefs_builder",
   "servo",
   "spi-memory",
   "VL53L1X",
