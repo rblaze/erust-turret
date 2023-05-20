@@ -367,13 +367,6 @@ name = "simplefs"
 version = "0.1.0"
 
 [[package]]
-name = "simplefs_builder"
-version = "0.1.0"
-dependencies = [
- "simplefs",
-]
-
-[[package]]
 name = "spi-memory"
 version = "0.3.0"
 dependencies = [

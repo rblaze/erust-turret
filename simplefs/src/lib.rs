@@ -2,6 +2,7 @@
 
 use core::mem::size_of;
 
+/*
 // Backend storage API. Originally from littlefs2 crate.
 pub trait Storage {
     // Error type
@@ -31,12 +32,32 @@ pub trait Storage {
     // Guaranteed to be called only with bufs of length a multiple of BLOCK_SIZE.
     fn erase(&mut self, off: usize, len: usize) -> Result<(), Self::Error>;
 }
+*/
 
 // Filesystem header, expected at storage offset 0
 #[repr(packed(1))]
 pub struct FilesystemHeader {
     pub signature: u64, // "SimpleFS"
     pub num_files: u16,
+}
+
+impl FilesystemHeader {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let signature_size = size_of::<u64>();
+        let num_files_size = size_of::<u16>();
+        let signature = u64::from_be_bytes(bytes.get(0..signature_size)?.try_into().ok()?);
+        let num_files = u16::from_be_bytes(
+            bytes
+                .get(signature_size..signature_size + num_files_size)?
+                .try_into()
+                .ok()?,
+        );
+
+        Some(FilesystemHeader {
+            signature,
+            num_files,
+        })
+    }
 }
 
 // "SimpleFS"
@@ -48,6 +69,12 @@ pub struct DirEntry {
     pub name: [u8; 16],
     pub offset: u32,
     pub length: u32,
+}
+
+impl DirEntry {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        todo!()
+    }
 }
 
 const _HDR_SIZE_CHECK: [u8; 10] = [0; size_of::<FilesystemHeader>()];

@@ -1,10 +1,33 @@
-use simplefs::FilesystemHeader;
+use std::io::Write;
+use std::mem::size_of;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+use simplefs::{DirEntry, FilesystemHeader};
 
+#[derive(Debug)]
 pub enum BuilderError {
     OutOfSpace,
     TooManyFiles,
+    FileTooBig,
+    FileNameTooLong,
+    IO(std::io::Error),
+}
+
+impl std::fmt::Display for BuilderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuilderError::OutOfSpace => write!(f, "capacity exceeded"),
+            BuilderError::TooManyFiles => write!(f, "too many files"),
+            BuilderError::FileTooBig => write!(f, "file too big"),
+            BuilderError::FileNameTooLong => write!(f, "file name too long"),
+            BuilderError::IO(ioerror) => write!(f, "{}", ioerror),
+        }
+    }
+}
+impl std::error::Error for BuilderError {}
+impl From<std::io::Error> for BuilderError {
+    fn from(ioerror: std::io::Error) -> Self {
+        BuilderError::IO(ioerror)
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -15,15 +38,13 @@ struct FileInfo {
 
 pub struct SimpleFsBuilder {
     capacity: usize,
-    write_block: usize,
     files: Vec<FileInfo>,
 }
 
 impl SimpleFsBuilder {
-    pub fn new(capacity: usize, write_block: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
-            write_block,
             files: Vec::new(),
         }
     }
@@ -32,7 +53,7 @@ impl SimpleFsBuilder {
         self.files.push(FileInfo { name, data })
     }
 
-    pub fn finalize(self) -> Result<Vec<u8>, BuilderError> {
+    pub fn finalize(self, writer: &mut impl Write) -> Result<(), BuilderError> {
         let num_files = self
             .files
             .len()
@@ -44,10 +65,41 @@ impl SimpleFsBuilder {
             num_files,
         };
 
-        // TODO write directory
-        // TODO write files
+        writer.write_all(Self::header_as_bytes(&header).as_slice())?;
 
-        Ok(Self::header_as_bytes(&header))
+        let mut current_offset =
+            size_of::<FilesystemHeader>() + self.files.len() * size_of::<DirEntry>();
+        for file in &self.files {
+            let mut direntry = DirEntry {
+                name: [0; 16],
+                offset: current_offset
+                    .try_into()
+                    .map_err(|_| BuilderError::OutOfSpace)?,
+                length: file
+                    .data
+                    .len()
+                    .try_into()
+                    .map_err(|_| BuilderError::FileTooBig)?,
+            };
+
+            if file.name.len() > direntry.name.len() {
+                return Err(BuilderError::FileNameTooLong);
+            }
+            (&mut direntry.name)[..file.name.len()].copy_from_slice(file.name.as_bytes());
+
+            current_offset += file.data.len();
+            if current_offset > self.capacity {
+                return Err(BuilderError::OutOfSpace);
+            }
+
+            writer.write_all(Self::direntry_as_bytes(&direntry).as_slice())?;
+        }
+
+        for file in &self.files {
+            writer.write_all(file.data.as_slice())?;
+        }
+
+        Ok(())
     }
 
     fn header_as_bytes(header: &FilesystemHeader) -> Vec<u8> {
@@ -56,6 +108,16 @@ impl SimpleFsBuilder {
             .to_be_bytes()
             .iter()
             .chain(header.num_files.to_be_bytes().iter())
+            .copied()
+            .collect()
+    }
+
+    fn direntry_as_bytes(direntry: &DirEntry) -> Vec<u8> {
+        direntry
+            .name
+            .iter()
+            .chain(direntry.offset.to_be_bytes().iter())
+            .chain(direntry.length.to_be_bytes().iter())
             .copied()
             .collect()
     }
@@ -70,29 +132,45 @@ mod tests {
     use super::*;
 
     const CAPACITY: usize = 4096 * 128;
-    const WRITE_BLOCK: usize = 16;
-
-    fn header_from_bytes(bytes: &[u8]) -> Option<FilesystemHeader> {
-        let signature = u64::from_be_bytes(bytes.get(0..8)?.try_into().ok()?);
-        let num_files = u16::from_be_bytes(bytes.get(8..10)?.try_into().ok()?);
-
-        Some(FilesystemHeader {
-            signature,
-            num_files,
-        })
-    }
 
     #[test]
     fn test_empty_fs_build() {
-        let builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY, WRITE_BLOCK);
+        let builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY);
 
-        let image_bytes = builder.finalize().expect("empty fs image");
+        let mut image_bytes = vec![];
+        builder.finalize(&mut image_bytes).expect("empty fs image");
         assert_eq!(image_bytes.len(), size_of::<FilesystemHeader>());
 
-        let header = header_from_bytes(&image_bytes).expect("parsing fs header");
+        let header = FilesystemHeader::from_bytes(image_bytes.get(0..10).unwrap())
+            .expect("parsing fs header");
         let signature = header.signature;
         let num_files = header.num_files;
         assert_eq!(signature, simplefs::SIGNATURE);
         assert_eq!(num_files, 0);
+    }
+
+    #[test]
+    fn test_single_file_fs_build() {
+        let filename = "foo";
+        let filedata = vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+        ];
+
+        let mut builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY);
+        builder.add_file(filename.to_owned(), filedata.clone());
+
+        let mut image_bytes = vec![];
+        builder.finalize(&mut image_bytes).expect("fs image");
+        assert_eq!(
+            image_bytes.len(),
+            size_of::<FilesystemHeader>() + size_of::<DirEntry>() + filedata.len()
+        );
+
+        let header = FilesystemHeader::from_bytes(image_bytes.get(0..10).unwrap())
+            .expect("parsing fs header");
+        let signature = header.signature;
+        let num_files = header.num_files;
+        assert_eq!(signature, simplefs::SIGNATURE);
+        assert_eq!(num_files, 1);
     }
 }

@@ -1,7 +1,0 @@
-[package]
-name = "simplefs_builder"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-simplefs = { path = "../simplefs" }
