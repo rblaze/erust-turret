@@ -1,6 +1,6 @@
-use std::io::Write;
 use std::mem::size_of;
 
+use bytes::{BufMut, Bytes, BytesMut};
 use simplefs::{DirEntry, FilesystemHeader};
 
 #[derive(Debug)]
@@ -53,22 +53,28 @@ impl SimpleFsBuilder {
         self.files.push(FileInfo { name, data })
     }
 
-    pub fn finalize(self, writer: &mut impl Write) -> Result<(), BuilderError> {
+    pub fn finalize(self) -> Result<Bytes, BuilderError> {
         let num_files = self
             .files
             .len()
             .try_into()
             .map_err(|_| BuilderError::TooManyFiles)?;
 
+        let total_file_size: usize = self.files.iter().map(|file| file.data.len()).sum();
+        let dir_size = self.files.len() * size_of::<DirEntry>();
+
+        let mut writer =
+            BytesMut::with_capacity(size_of::<FilesystemHeader>() + dir_size + total_file_size);
+
         let header = FilesystemHeader {
             signature: simplefs::SIGNATURE,
             num_files,
         };
 
-        writer.write_all(Self::header_as_bytes(&header).as_slice())?;
+        Self::put_header(&header, &mut writer);
 
-        let mut current_offset =
-            size_of::<FilesystemHeader>() + self.files.len() * size_of::<DirEntry>();
+        let mut current_offset = size_of::<FilesystemHeader>() + dir_size;
+
         for file in &self.files {
             let mut direntry = DirEntry {
                 name: [0; 16],
@@ -92,38 +98,31 @@ impl SimpleFsBuilder {
                 return Err(BuilderError::OutOfSpace);
             }
 
-            writer.write_all(Self::direntry_as_bytes(&direntry).as_slice())?;
+            Self::put_direntry(&direntry, &mut writer);
         }
 
         for file in &self.files {
-            writer.write_all(file.data.as_slice())?;
+            writer.put_slice(file.data.as_slice());
         }
 
-        Ok(())
+        Ok(writer.freeze())
     }
 
-    fn header_as_bytes(header: &FilesystemHeader) -> Vec<u8> {
-        header
-            .signature
-            .to_be_bytes()
-            .iter()
-            .chain(header.num_files.to_be_bytes().iter())
-            .copied()
-            .collect()
+    fn put_header(header: &FilesystemHeader, writer: &mut impl BufMut) {
+        writer.put_u64(header.signature);
+        writer.put_u16(header.num_files);
     }
 
-    fn direntry_as_bytes(direntry: &DirEntry) -> Vec<u8> {
-        direntry
-            .name
-            .iter()
-            .chain(direntry.offset.to_be_bytes().iter())
-            .chain(direntry.length.to_be_bytes().iter())
-            .copied()
-            .collect()
+    fn put_direntry(direntry: &DirEntry, writer: &mut impl BufMut) {
+        writer.put_slice(&direntry.name);
+        writer.put_u32(direntry.offset);
+        writer.put_u32(direntry.length);
     }
 }
 
-fn main() {}
+fn main() {
+    todo!()
+}
 
 #[cfg(test)]
 mod tests {
@@ -137,12 +136,10 @@ mod tests {
     fn test_empty_fs_build() {
         let builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY);
 
-        let mut image_bytes = vec![];
-        builder.finalize(&mut image_bytes).expect("empty fs image");
+        let image_bytes = builder.finalize().expect("empty fs image");
         assert_eq!(image_bytes.len(), size_of::<FilesystemHeader>());
 
-        let header = FilesystemHeader::from_bytes(image_bytes.get(0..10).unwrap())
-            .expect("parsing fs header");
+        let header = FilesystemHeader::from_bytes(image_bytes).expect("parsing fs header");
         let signature = header.signature;
         let num_files = header.num_files;
         assert_eq!(signature, simplefs::SIGNATURE);
@@ -159,15 +156,13 @@ mod tests {
         let mut builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY);
         builder.add_file(filename.to_owned(), filedata.clone());
 
-        let mut image_bytes = vec![];
-        builder.finalize(&mut image_bytes).expect("fs image");
+        let image_bytes = builder.finalize().expect("fs image");
         assert_eq!(
             image_bytes.len(),
             size_of::<FilesystemHeader>() + size_of::<DirEntry>() + filedata.len()
         );
 
-        let header = FilesystemHeader::from_bytes(image_bytes.get(0..10).unwrap())
-            .expect("parsing fs header");
+        let header = FilesystemHeader::from_bytes(image_bytes).expect("parsing fs header");
         let signature = header.signature;
         let num_files = header.num_files;
         assert_eq!(signature, simplefs::SIGNATURE);

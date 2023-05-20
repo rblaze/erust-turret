@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
+use bytes::{Buf, Bytes};
 use core::mem::size_of;
 
 /*
@@ -42,16 +43,13 @@ pub struct FilesystemHeader {
 }
 
 impl FilesystemHeader {
-    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let signature_size = size_of::<u64>();
-        let num_files_size = size_of::<u16>();
-        let signature = u64::from_be_bytes(bytes.get(0..signature_size)?.try_into().ok()?);
-        let num_files = u16::from_be_bytes(
-            bytes
-                .get(signature_size..signature_size + num_files_size)?
-                .try_into()
-                .ok()?,
-        );
+    pub fn from_bytes(mut bytes: Bytes) -> Option<Self> {
+        if bytes.remaining() < size_of::<FilesystemHeader>() {
+            return None;
+        }
+
+        let signature = bytes.get_u64();
+        let num_files = bytes.get_u16();
 
         Some(FilesystemHeader {
             signature,
@@ -72,8 +70,22 @@ pub struct DirEntry {
 }
 
 impl DirEntry {
-    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        todo!()
+    pub fn from_bytes(mut bytes: Bytes) -> Option<Self> {
+        if bytes.remaining() < size_of::<DirEntry>() {
+            return None;
+        }
+
+        let mut name = [0; 16];
+        bytes.copy_to_slice(&mut name);
+
+        let offset = bytes.get_u32();
+        let length = bytes.get_u32();
+
+        Some(DirEntry {
+            name,
+            offset,
+            length,
+        })
     }
 }
 
