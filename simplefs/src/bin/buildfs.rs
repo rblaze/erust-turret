@@ -1,7 +1,8 @@
+use std::ffi::CString;
 use std::mem::size_of;
 
 use bytes::{BufMut, Bytes, BytesMut};
-use simplefs::{DirEntry, FilesystemHeader};
+use simplefs::{DirEntry, FilesystemHeader, MAX_FILE_NAME_BYTES};
 
 #[derive(Debug)]
 pub enum BuilderError {
@@ -32,7 +33,7 @@ impl From<std::io::Error> for BuilderError {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct FileInfo {
-    name: String,
+    name: CString,
     data: Vec<u8>,
 }
 
@@ -49,7 +50,8 @@ impl SimpleFsBuilder {
         }
     }
 
-    pub fn add_file(&mut self, name: String, data: Vec<u8>) {
+    pub fn add_file(&mut self, name: CString, data: Vec<u8>) {
+        // TODO check for duplicate file names
         self.files.push(FileInfo { name, data })
     }
 
@@ -66,18 +68,17 @@ impl SimpleFsBuilder {
         let mut writer =
             BytesMut::with_capacity(size_of::<FilesystemHeader>() + dir_size + total_file_size);
 
-        let header = FilesystemHeader {
+        FilesystemHeader {
             signature: simplefs::SIGNATURE,
             num_files,
-        };
-
-        Self::put_header(&header, &mut writer);
+        }
+        .to_bytes(&mut writer);
 
         let mut current_offset = size_of::<FilesystemHeader>() + dir_size;
 
         for file in &self.files {
             let mut direntry = DirEntry {
-                name: [0; 16],
+                name: [0; MAX_FILE_NAME_BYTES],
                 offset: current_offset
                     .try_into()
                     .map_err(|_| BuilderError::OutOfSpace)?,
@@ -88,17 +89,18 @@ impl SimpleFsBuilder {
                     .map_err(|_| BuilderError::FileTooBig)?,
             };
 
-            if file.name.len() > direntry.name.len() {
+            let name = file.name.as_bytes();
+            if name.len() > direntry.name.len() {
                 return Err(BuilderError::FileNameTooLong);
             }
-            (&mut direntry.name)[..file.name.len()].copy_from_slice(file.name.as_bytes());
+            (&mut direntry.name)[..name.len()].copy_from_slice(name);
 
             current_offset += file.data.len();
             if current_offset > self.capacity {
                 return Err(BuilderError::OutOfSpace);
             }
 
-            Self::put_direntry(&direntry, &mut writer);
+            direntry.to_bytes(&mut writer);
         }
 
         for file in &self.files {
@@ -106,17 +108,6 @@ impl SimpleFsBuilder {
         }
 
         Ok(writer.freeze())
-    }
-
-    fn put_header(header: &FilesystemHeader, writer: &mut impl BufMut) {
-        writer.put_u64(header.signature);
-        writer.put_u16(header.num_files);
-    }
-
-    fn put_direntry(direntry: &DirEntry, writer: &mut impl BufMut) {
-        writer.put_slice(&direntry.name);
-        writer.put_u32(direntry.offset);
-        writer.put_u32(direntry.length);
     }
 }
 
@@ -126,11 +117,47 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use simplefs::{FileSystem, Storage};
+
+    use std::ffi::CString;
     use std::mem::size_of;
 
-    use super::*;
+    use quickcheck::{quickcheck, Arbitrary, Gen};
 
     const CAPACITY: usize = 4096 * 128;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum RamStorageError {
+        OutOfBoundsAccess,
+    }
+
+    #[derive(Debug)]
+    struct RamStorage {
+        bytes: Bytes,
+    }
+
+    impl RamStorage {
+        fn new(bytes: Bytes) -> Self {
+            Self { bytes }
+        }
+    }
+
+    impl Storage for RamStorage {
+        type Error = RamStorageError;
+
+        fn read(&mut self, off: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+            if off + buf.len() > self.bytes.len() {
+                return Err(RamStorageError::OutOfBoundsAccess);
+            }
+
+            Ok(buf.copy_from_slice(&self.bytes[off..off + buf.len()]))
+        }
+
+        fn capacity(&self) -> usize {
+            self.bytes.len()
+        }
+    }
 
     #[test]
     fn test_empty_fs_build() {
@@ -139,16 +166,22 @@ mod tests {
         let image_bytes = builder.finalize().expect("empty fs image");
         assert_eq!(image_bytes.len(), size_of::<FilesystemHeader>());
 
-        let header = FilesystemHeader::from_bytes(image_bytes).expect("parsing fs header");
+        let header =
+            FilesystemHeader::from_bytes(&mut image_bytes.clone()).expect("parsing fs header");
         let signature = header.signature;
         let num_files = header.num_files;
         assert_eq!(signature, simplefs::SIGNATURE);
         assert_eq!(num_files, 0);
+
+        FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
+            assert_eq!(fs.get_num_files(), 0);
+        })
+        .expect("filesystem mount");
     }
 
     #[test]
     fn test_single_file_fs_build() {
-        let filename = "foo";
+        let filename = CString::new("foo").unwrap();
         let filedata = vec![
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
         ];
@@ -162,10 +195,75 @@ mod tests {
             size_of::<FilesystemHeader>() + size_of::<DirEntry>() + filedata.len()
         );
 
-        let header = FilesystemHeader::from_bytes(image_bytes).expect("parsing fs header");
+        let header =
+            FilesystemHeader::from_bytes(&mut image_bytes.clone()).expect("parsing fs header");
         let signature = header.signature;
         let num_files = header.num_files;
         assert_eq!(signature, simplefs::SIGNATURE);
         assert_eq!(num_files, 1);
+
+        FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
+            assert_eq!(fs.get_num_files(), 1);
+        })
+        .expect("filesystem mount");
+    }
+
+    #[derive(Debug, Clone)]
+    struct FileName(CString);
+
+    impl Arbitrary for FileName {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let size = 1 + usize::arbitrary(g) % MAX_FILE_NAME_BYTES;
+
+            FileName(
+                CString::new(
+                    (0..)
+                        .map(|_| u8::arbitrary(g))
+                        .filter(|&c| c != b'\0')
+                        .take(size)
+                        .collect::<Vec<u8>>(),
+                )
+                .unwrap(),
+            )
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct QuickCheckFileData {
+        name: FileName,
+        data: Vec<u8>,
+    }
+
+    impl Arbitrary for QuickCheckFileData {
+        fn arbitrary(g: &mut Gen) -> Self {
+            QuickCheckFileData {
+                name: FileName::arbitrary(g),
+                data: Vec::<u8>::arbitrary(g),
+            }
+        }
+    }
+
+    quickcheck! {
+    fn test_valid_fs_build(files: Vec<QuickCheckFileData>) -> bool {
+        let mut builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY);
+
+        for file in &files {
+            let FileName(name) = file.name.clone();
+            builder.add_file(name, file.data.clone());
+        }
+
+        let image_bytes = match builder.finalize() {
+            Ok(image_bytes) => image_bytes,
+            Err(_) => return false
+        };
+
+        FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
+            if fs.get_num_files() as usize != files.len() {
+                return false;
+            }
+            return true;
+        })
+        .expect("filesystem mount")
+    }
     }
 }
