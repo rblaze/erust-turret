@@ -1,6 +1,7 @@
-#![cfg_attr(not(test), no_std)]
+#![no_std]
+#![deny(unsafe_code)]
 
-use bytes::{Buf, BufMut, Bytes};
+use bytes::{Buf, BufMut};
 use core::mem::size_of;
 
 // Backend storage API. Originally from littlefs2 crate.
@@ -55,12 +56,22 @@ impl<S: Storage> FileSystem<S> {
         self.num_files
     }
 
-    pub fn open_and(&self, name: &str) -> Result<File, Error<S>> {
+    pub fn open_and(&self, index: u16) -> Result<File<S>, Error<S>> {
         todo!()
     }
 }
 
-pub struct File {}
+pub struct File<S> {
+    storage: S,
+    current_offset: usize,
+    bytes_remaining: usize,
+}
+
+impl<S: Storage> File<S> {
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize, Error<S>> {
+        todo!()
+    }
+}
 
 // Filesystem header, expected at storage offset 0
 #[repr(packed(1))]
@@ -92,11 +103,9 @@ impl FilesystemHeader {
 
 // "SimpleFS"
 pub const SIGNATURE: u64 = 0x53696d706c654653;
-pub const MAX_FILE_NAME_BYTES: usize = 16;
 
 // Directory entry, 0 or more follow filesystem header.
 pub struct DirEntry {
-    pub name: [u8; MAX_FILE_NAME_BYTES],
     pub offset: u32,
     pub length: u32,
 }
@@ -107,25 +116,17 @@ impl DirEntry {
             return None;
         }
 
-        let mut name = [0; MAX_FILE_NAME_BYTES];
-        reader.copy_to_slice(&mut name);
-
         let offset = reader.get_u32();
         let length = reader.get_u32();
 
-        Some(DirEntry {
-            name,
-            offset,
-            length,
-        })
+        Some(DirEntry { offset, length })
     }
 
     pub fn to_bytes(&self, writer: &mut impl BufMut) {
-        writer.put_slice(&self.name);
         writer.put_u32(self.offset);
         writer.put_u32(self.length);
     }
 }
 
 const _HDR_SIZE_CHECK: [u8; 10] = [0; size_of::<FilesystemHeader>()];
-const _DIRENTRY_SIZE_CHECK: [u8; 24] = [0; size_of::<DirEntry>()];
+const _DIRENTRY_SIZE_CHECK: [u8; 8] = [0; size_of::<DirEntry>()];
