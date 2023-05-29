@@ -27,7 +27,7 @@ impl RamStorage {
 impl Storage for RamStorage {
     type Error = RamStorageError;
 
-    fn read(&mut self, off: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
+    fn read(&self, off: usize, buf: &mut [u8]) -> Result<(), Self::Error> {
         if off + buf.len() > self.bytes.len() {
             return Err(RamStorageError::OutOfBoundsAccess);
         }
@@ -38,6 +38,16 @@ impl Storage for RamStorage {
     fn capacity(&self) -> usize {
         self.bytes.len()
     }
+}
+
+fn read_full_file(fs: &FileSystem<RamStorage>, index: usize) -> Vec<u8> {
+    let mut file = fs.open(index).expect("file open");
+    let mut buf = Vec::new();
+    buf.resize(file.total_size(), 0);
+
+    let bytes_read = file.read(&mut buf).expect("read");
+    assert_eq!(bytes_read, buf.len());
+    return buf;
 }
 
 #[test]
@@ -55,6 +65,8 @@ fn test_empty_fs_build() {
 
     FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
         assert_eq!(fs.get_num_files(), 0);
+        let status = fs.open(0).expect_err("open non-existent file");
+        assert_eq!(status, Error::InvalidFileIndex);
     })
     .expect("filesystem mount");
 }
@@ -82,6 +94,8 @@ fn test_single_file_fs_build() {
 
     FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
         assert_eq!(fs.get_num_files(), 1);
+        let buf = read_full_file(&fs, 0);
+        assert_eq!(filedata, buf);
     })
     .expect("filesystem mount");
 }
@@ -101,6 +115,7 @@ impl Arbitrary for QuickCheckFileData {
 
 quickcheck! {
 fn test_valid_fs_build(files: Vec<QuickCheckFileData>) -> bool {
+    // TODO restrict file sizes by CAPACITY or check for errors
     let mut builder: SimpleFsBuilder = SimpleFsBuilder::new(CAPACITY);
 
     for file in &files {
@@ -116,7 +131,12 @@ fn test_valid_fs_build(files: Vec<QuickCheckFileData>) -> bool {
         if fs.get_num_files() as usize != files.len() {
             return false;
         }
-        return true;
+
+        // Check that file contents are read correctly
+        files.iter().enumerate().all(|(i, file)| {
+            let buf = read_full_file(&fs, i);
+            file.data == buf
+        })
     })
     .expect("filesystem mount")
 }

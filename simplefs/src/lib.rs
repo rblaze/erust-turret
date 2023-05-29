@@ -13,16 +13,22 @@ pub trait Storage {
     fn capacity(&self) -> usize;
 
     // Read data from the storage device.
-    // Guaranteed to be called only with bufs of length a multiple of READ_SIZE.
-    fn read(&mut self, off: usize, buf: &mut [u8]) -> Result<(), Self::Error>;
+    // Guaranteed not to be called with off > capacity() or bufs of length > capacity() - off.
+    fn read(&self, off: usize, buf: &mut [u8]) -> Result<(), Self::Error>;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Error<S: Storage> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Error<E> {
     InvalidSignature,
-    InconsistentData,
-    FileNotFound,
-    Storage(S::Error),
+    CorruptedFileSystem,
+    InvalidFileIndex,
+    Storage(E),
+}
+
+impl<E> From<E> for Error<E> {
+    fn from(error: E) -> Self {
+        Error::Storage(error)
+    }
 }
 
 pub struct FileSystem<S> {
@@ -31,24 +37,31 @@ pub struct FileSystem<S> {
 }
 
 impl<S: Storage> FileSystem<S> {
-    pub fn mount_and<R>(mut storage: S, f: impl Fn(&Self) -> R) -> Result<R, Error<S>> {
+    pub fn mount_and<R>(storage: S, f: impl Fn(&Self) -> R) -> Result<R, Error<S::Error>> {
         if storage.capacity() < size_of::<FilesystemHeader>() {
-            return Err(Error::InconsistentData);
+            return Err(Error::CorruptedFileSystem);
         }
 
         let mut buf = [0; size_of::<FilesystemHeader>()];
-        storage.read(0, &mut buf).map_err(|e| Error::Storage(e))?;
+        storage.read(0, &mut buf)?;
         let header =
-            FilesystemHeader::from_bytes(&mut buf.as_slice()).ok_or(Error::InconsistentData)?;
+            FilesystemHeader::from_bytes(&mut buf.as_slice()).ok_or(Error::CorruptedFileSystem)?;
 
         if header.signature != SIGNATURE {
             return Err(Error::InvalidSignature);
+        }
+
+        if storage.capacity()
+            < size_of::<FilesystemHeader>() + header.num_files as usize * size_of::<DirEntry>()
+        {
+            return Err(Error::CorruptedFileSystem);
         }
 
         let fs = FileSystem {
             storage,
             num_files: header.num_files,
         };
+
         Ok(f(&fs))
     }
 
@@ -56,20 +69,59 @@ impl<S: Storage> FileSystem<S> {
         self.num_files
     }
 
-    pub fn open_and(&self, index: u16) -> Result<File<S>, Error<S>> {
-        todo!()
+    pub fn open(&self, index: usize) -> Result<File<S>, Error<S::Error>> {
+        if index >= self.num_files as usize {
+            return Err(Error::InvalidFileIndex);
+        }
+
+        let mut buf = [0; size_of::<DirEntry>()];
+        self.storage.read(
+            size_of::<FilesystemHeader>() + index * size_of::<DirEntry>(),
+            &mut buf,
+        )?;
+
+        let direntry =
+            DirEntry::from_bytes(&mut buf.as_slice()).ok_or(Error::CorruptedFileSystem)?;
+        if direntry.offset as usize + direntry.length as usize > self.storage.capacity() {
+            return Err(Error::CorruptedFileSystem);
+        }
+
+        return Ok(File::new(&self.storage, &direntry));
     }
 }
 
-pub struct File<S> {
-    storage: S,
-    current_offset: usize,
-    bytes_remaining: usize,
+#[derive(Debug)]
+pub struct File<'a, S> {
+    storage: &'a S,
+    file_offset: usize,
+    file_size: usize,
+    read_position: usize,
 }
 
-impl<S: Storage> File<S> {
-    pub fn read(&self, buf: &mut [u8]) -> Result<usize, Error<S>> {
-        todo!()
+impl<'a, S: Storage> File<'a, S> {
+    fn new(storage: &'a S, direntry: &DirEntry) -> Self {
+        Self {
+            storage,
+            file_offset: direntry.offset as usize,
+            file_size: direntry.length as usize,
+            read_position: 0,
+        }
+    }
+
+    pub fn total_size(&self) -> usize {
+        self.file_size
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<S::Error>> {
+        let max_read = self.file_size - self.read_position;
+        let bytes_to_read = buf.len().min(max_read);
+        self.storage.read(
+            self.file_offset + self.read_position,
+            &mut buf[..bytes_to_read],
+        )?;
+
+        self.read_position += bytes_to_read;
+        Ok(bytes_to_read)
     }
 }
 

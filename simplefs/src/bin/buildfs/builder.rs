@@ -8,7 +8,6 @@ pub enum BuilderError {
     OutOfSpace,
     TooManyFiles,
     FileTooBig,
-    IO(std::io::Error),
 }
 
 impl std::fmt::Display for BuilderError {
@@ -17,16 +16,11 @@ impl std::fmt::Display for BuilderError {
             BuilderError::OutOfSpace => write!(f, "capacity exceeded"),
             BuilderError::TooManyFiles => write!(f, "too many files"),
             BuilderError::FileTooBig => write!(f, "file too big"),
-            BuilderError::IO(ioerror) => write!(f, "{}", ioerror),
         }
     }
 }
+
 impl std::error::Error for BuilderError {}
-impl From<std::io::Error> for BuilderError {
-    fn from(ioerror: std::io::Error) -> Self {
-        BuilderError::IO(ioerror)
-    }
-}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct FileInfo {
