@@ -13,7 +13,6 @@ use crate::audio::Audio;
 use crate::board::Board;
 use crate::targeting::Targeting;
 use cortex_m_rt::entry;
-use littlefs2::fs::Filesystem;
 use rtt_target::rtt_init_print;
 use stm32f1xx_hal::pac;
 
@@ -30,33 +29,31 @@ fn main() -> ! {
     let mut board = Board::new(cp, dp).unwrap();
     let mut queue = event_queue::EventQueue::new(board.ticker);
 
-    Filesystem::mount_and_then(&mut board.storage, |fs| {
-        let audio = Audio::new(fs, board.audio_enable).unwrap();
+    let audio = Audio::new(board.audio_enable).unwrap();
 
-        let num_steps = ranging::get_num_steps_from_angle_scale(board.adc_ratio).unwrap();
+    let num_steps = ranging::get_num_steps_from_angle_scale(board.adc_ratio).unwrap();
 
-        let targeting = Targeting::new(
-            board.ticker,
-            &mut queue,
-            board.target_lock_led,
-            board.laser_led,
-            board.laser_servo,
-            num_steps as u16,
-            audio,
-        )
-        .unwrap();
+    let targeting = Targeting::new(
+        board.ticker,
+        &mut queue,
+        board.target_lock_led,
+        board.laser_led,
+        board.laser_servo,
+        num_steps as u16,
+        audio,
+    )
+    .unwrap();
 
-        ranging::start(
-            board.ticker,
-            &mut queue,
-            board.sensor,
-            board.sensor_servo,
-            num_steps,
-            targeting,
-            audio,
-        )
-        .unwrap();
+    ranging::start(
+        board.ticker,
+        &mut queue,
+        board.sensor,
+        board.sensor_servo,
+        num_steps,
+        targeting,
+        audio,
+    )
+    .unwrap();
 
-        queue.run_forever();
-    }).unwrap()
+    queue.run_forever();
 }

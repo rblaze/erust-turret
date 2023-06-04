@@ -6,7 +6,6 @@ use crate::system_time::Ticker;
 use num::rational::Ratio;
 use rtt_target::rprintln;
 use servo::{Bounds, Servo};
-use sound_storage::SoundStorage;
 use stm32f1xx_hal::device::{I2C1, TIM1};
 use stm32f1xx_hal::gpio::{Alternate, Input, Output};
 use stm32f1xx_hal::gpio::{Floating, OpenDrain, PullDown, PushPull};
@@ -41,7 +40,8 @@ type SpiMiso = PB14<Input<Floating>>;
 type SpiMosi = PB15<Alternate<PushPull>>;
 
 pub type AudioEnable = PA4<Output<PushPull>>;
-pub type Storage = SoundStorage<Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>, SpiCs>;
+pub struct Storage;
+// pub type Storage = SoundStorage<Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>, SpiCs>;
 
 pub struct Board {
     pub ticker: Ticker,
@@ -143,7 +143,7 @@ impl Board {
             clocks,
         );
 
-        let storage = SoundStorage::new(spi, spi_cs)?;
+        let storage = Storage{}; // SoundStorage::new(spi, spi_cs)?;
         let audio_enable = gpioa.pa4.into_push_pull_output(&mut gpioa.crl);
 
         let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);

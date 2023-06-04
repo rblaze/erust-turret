@@ -9,8 +9,6 @@ pub enum Error {
     InvalidDuration,
     InvalidScale,
     ConversionError(TryFromIntError),
-    LittleFsError(littlefs2::io::Error),
-    PathError(littlefs2::path::Error),
     UnexpectedlyBlocks,
     Uninitialized,
 }
@@ -36,17 +34,5 @@ impl From<TryFromIntError> for Error {
 impl From<nb::Error<()>> for Error {
     fn from(_: nb::Error<()>) -> Self {
         Error::UnexpectedlyBlocks
-    }
-}
-
-impl From<littlefs2::io::Error> for Error {
-    fn from(error: littlefs2::io::Error) -> Self {
-        Error::LittleFsError(error)
-    }
-}
-
-impl From<littlefs2::path::Error> for Error {
-    fn from(error: littlefs2::path::Error) -> Self {
-        Error::PathError(error)
     }
 }

@@ -9,14 +9,12 @@ edition = "2021"
 calibration = { path = "../../calibration" }
 event_queue = { path = "../../event_queue" }
 servo = { path = "../../servo" }
-sound-storage = { path = "../sound-storage" }
 vl53l1x = { path = "../../VL53L1X" }
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.1"
 critical-section = { version = "1.1.1" }
 embedded-hal = "0.2.7"
 fugit = "0.3.6"
-littlefs2 = "0.3.2"
 nb = "1.0.0"
 num = { version = "0.4.0", default-features = false }
 stm32f1xx-hal = { version = "0.9.0", features = ["stm32f103", "rt", "medium"] }

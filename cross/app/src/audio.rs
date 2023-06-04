@@ -2,8 +2,6 @@ use crate::board::{AudioEnable, Storage};
 use crate::error::Error;
 use core::cell::RefCell;
 use core::mem::transmute;
-use littlefs2::fs::Filesystem;
-use littlefs2::path::Path;
 use rtt_target::rprintln;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,8 +20,8 @@ pub enum Sound {
 pub struct Audio;
 
 impl Audio {
-    pub fn new(fs: &Filesystem<'_, Storage>, audio_enable: AudioEnable) -> Result<Audio, Error> {
-        STATE.set(State::init(fs, audio_enable)?);
+    pub fn new(audio_enable: AudioEnable) -> Result<Audio, Error> {
+        STATE.set(State::init(audio_enable)?);
 
         Ok(Audio {})
     }
@@ -97,17 +95,16 @@ enum PlayState {
 }
 
 struct State {
-    fs: &'static Filesystem<'static, Storage>,
     audio_enable: AudioEnable,
     play_state: PlayState,
 }
 
 impl State {
-    fn init(fs: &Filesystem<'_, Storage>, audio_enable: AudioEnable) -> Result<Self, Error> {
+    fn init(audio_enable: AudioEnable) -> Result<Self, Error> {
         Ok(State {
             // The filesystem is never unmounted unless the program panics anyway.
             // We can cast it to 'static lifetime.
-            fs: unsafe { transmute(fs) },
+            // fs: unsafe { transmute(fs) },
             audio_enable,
             play_state: PlayState::Idle,
         })
@@ -137,44 +134,14 @@ impl State {
 
         rprintln!("playing {:?}", filename);
 
-        self.play_state = PlayState::Playing {
-            path: filename,
-            offset: 0,
-            current: CurrentlyPlaying::First,
-            next_buffer_size: 0,
-            buf1: [0; BUF_SIZE],
-            buf2: [0; BUF_SIZE],
-        };
-
-        self.fs
-            .open_file_and_then(Path::from_bytes_with_nul(filename.as_bytes())?, |f| {
-                match &mut self.play_state {
-                    PlayState::Playing {
-                        offset,
-                        buf1,
-                        next_buffer_size,
-                        ..
-                    } => {
-                        let bytes_read = f.read(buf1)?;
-                        *offset += bytes_read;
-                        *next_buffer_size = bytes_read;
-
-                        if *next_buffer_size > 0 {
-                            // TODO start playing first buffer
-                        } else {
-                            // Empty clip, don't play
-                            self.play_state = PlayState::Idle;
-                        }
-                        Ok(())
-                    }
-                    _ => unreachable!(),
-                }
-            })
-            .map_err(|err| {
-                // First buffer read failed, bail out.
-                self.play_state = PlayState::Idle;
-                err
-            })?;
+        // self.play_state = PlayState::Playing {
+        //     path: filename,
+        //     offset: 0,
+        //     current: CurrentlyPlaying::First,
+        //     next_buffer_size: 0,
+        //     buf1: [0; BUF_SIZE],
+        //     buf2: [0; BUF_SIZE],
+        // };
 
         Ok(())
     }
