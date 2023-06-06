@@ -1,0 +1,13 @@
+[package]
+name = "simplefs-builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+simplefs = { path = "../simplefs" }
+anyhow = "1.0"
+bytes = "1.4"
+clap = { version = "4.3", features = ["derive"] }
+
+[dev-dependencies]
+quickcheck = "1.0"
