@@ -27,10 +27,10 @@ fn main() -> ! {
     let cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
 
-    let mut board = Board::new(cp, dp).unwrap();
+    let board = Board::new(cp, dp).unwrap();
     let mut queue = event_queue::EventQueue::new(board.ticker);
 
-    let audio = Audio::new(board.audio_enable).unwrap();
+    let audio = Audio::new(board.storage, board.audio_enable).unwrap();
 
     let num_steps = ranging::get_num_steps_from_angle_scale(board.adc_ratio).unwrap();
 

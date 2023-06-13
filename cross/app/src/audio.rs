@@ -1,7 +1,6 @@
 use crate::board::{AudioEnable, Storage};
 use crate::error::Error;
 use core::cell::RefCell;
-use core::mem::transmute;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
 
@@ -21,8 +20,8 @@ pub enum Sound {
 pub struct Audio;
 
 impl Audio {
-    pub fn new(audio_enable: AudioEnable) -> Result<Audio, Error> {
-        STATE.set(State::init(audio_enable)?);
+    pub fn new(storage: Storage, audio_enable: AudioEnable) -> Result<Audio, Error> {
+        STATE.set(State::init(storage, audio_enable)?);
 
         Ok(Audio {})
     }
@@ -134,17 +133,15 @@ impl PlayState {
 }
 
 struct State {
-    // fs: &'static FileSystem<Storage>,
+    fs: FileSystem<Storage>,
     audio_enable: AudioEnable,
     play_state: PlayState,
 }
 
 impl State {
-    fn init(audio_enable: AudioEnable) -> Result<Self, Error> {
+    fn init(storage: Storage, audio_enable: AudioEnable) -> Result<Self, Error> {
         Ok(State {
-            // The filesystem is never unmounted unless the program panics anyway.
-            // We can cast it to 'static lifetime.
-            // fs: unsafe { transmute(fs) },
+            fs: FileSystem::mount(storage)?,
             audio_enable,
             play_state: PlayState::Idle,
         })
@@ -170,17 +167,25 @@ impl State {
             Sound::TargetLost => TARGET_LOST_CLIPS,
             Sound::PickedUp => PICKED_UP_CLIPS,
         };
-        let file = self.pick_clip(clips);
+        let clip = self.pick_clip(clips);
 
-        rprintln!("playing {:?}", file);
+        rprintln!("playing {:?}", clip);
 
-        // self.play_state = PlayState::Playing {
-        //     file: ,
-        //     current_buffer: CurrentlyPlaying::First,
-        //     bytes_in_next_buffer: 0,
-        //     buf1: [0; BUF_SIZE],
-        //     buf2: [0; BUF_SIZE],
-        // };
+        let file = self.fs.open(clip.file_index())?;
+
+        self.play_state = PlayState::Playing {
+            // Filesystem is never unmounted, so it is safe to get static reference.
+            file: unsafe { core::mem::transmute(file) },
+            current_buffer: CurrentlyPlaying::First,
+            bytes_in_next_buffer: 0,
+            buf1: [0; BUF_SIZE],
+            buf2: [0; BUF_SIZE],
+        };
+
+        // Read first buffer.
+        // Enable audio.
+        // Start reading second buffer.
+        // Start playing first buffer.
 
         Ok(())
     }
