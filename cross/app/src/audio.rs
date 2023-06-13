@@ -3,6 +3,7 @@ use crate::error::Error;
 use core::cell::RefCell;
 use core::mem::transmute;
 use rtt_target::rprintln;
+use simplefs::{File, FileSystem};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sound {
@@ -39,39 +40,70 @@ const SOUND_FREQ: u16 = 16000;
 // Sound buffer size.
 const BUF_SIZE: usize = 1024;
 
-const STARTUP_CLIPS: &[&str] = &["Turret_sfx_deploy.raw\0", "Turret_sfx_active.raw\0"];
-const BEGIN_SCAN_CLIPS: &[&str] = &[
-    "Turret_searching.raw\0",
-    "Turret_activated.raw\0",
-    "Turret_sentry_mode_activated.raw\0",
-    "Turret_could_you_come_over_here.raw\0",
-    "Turret_deploying.raw\0",
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Clip {
+    SfxDeploy,
+    SfxActive,
+    Searching,
+    Activated,
+    SentryModeActivated,
+    CouldYouComeOverHere,
+    Deploying,
+    HelloFriend,
+    WhoIsThere,
+    TargetAcquired,
+    Gotcha,
+    ISeeYou,
+    ThereYouAre,
+    SfxRetract,
+    SfxPing,
+    Hi,
+    SfxAlert,
+    IsAnyoneThere,
+    Hellooooo,
+    IAmStillThere,
+    TargetLost,
+    Malfunctioning,
+    PutMeDown,
+    WhoAreYou,
+    PleasePutMeDown,
+}
+
+impl Clip {
+    const fn file_index(self) -> usize {
+        self as usize
+    }
+}
+
+const STARTUP_CLIPS: &[Clip] = &[Clip::SfxDeploy, Clip::SfxActive];
+const BEGIN_SCAN_CLIPS: &[Clip] = &[
+    Clip::Searching,
+    Clip::Activated,
+    Clip::SentryModeActivated,
+    Clip::CouldYouComeOverHere,
+    Clip::Deploying,
 ];
-const TARGET_ACQUIRED_CLIPS: &[&str] = &[
-    "Turret_hello_friend.raw\0",
-    "Turret_who_is_there.raw\0",
-    "Turret_target_acquired.raw\0",
-    "Turret_gotcha.raw\0",
-    "Turret_I_see_you.raw\0",
-    "Turret_there_you_are.raw\0",
+const TARGET_ACQUIRED_CLIPS: &[Clip] = &[
+    Clip::HelloFriend,
+    Clip::WhoIsThere,
+    Clip::TargetAcquired,
+    Clip::Gotcha,
+    Clip::ISeeYou,
+    Clip::ThereYouAre,
 ];
-const CONTACT_LOST_CLIPS: &[&str] = &["Turret_sfx_retract.raw\0"];
-const CONTACT_RESTORED_CLIPS: &[&str] = &[
-    "Turret_sfx_ping.raw\0",
-    "Turret_hi.raw\0",
-    "Turret_sfx_alert.raw\0",
+const CONTACT_LOST_CLIPS: &[Clip] = &[Clip::SfxRetract];
+const CONTACT_RESTORED_CLIPS: &[Clip] = &[Clip::SfxPing, Clip::Hi, Clip::SfxAlert];
+const TARGET_LOST_CLIPS: &[Clip] = &[
+    Clip::IsAnyoneThere,
+    Clip::Hellooooo,
+    Clip::IAmStillThere,
+    Clip::TargetLost,
 ];
-const TARGET_LOST_CLIPS: &[&str] = &[
-    "Turret_is_anyone_there.raw\0",
-    "Turret_hellooooo.raw\0",
-    "Turret_are_you_still_there.raw\0",
-    "Turret_target_lost.raw\0",
-];
-const PICKED_UP_CLIPS: &[&str] = &[
-    "Turret_malfunctioning.raw\0",
-    "Turret_put_me_down.raw\0",
-    "Turret_who_are_you.raw\0",
-    "Turret_please_put_me_down.raw\0",
+const PICKED_UP_CLIPS: &[Clip] = &[
+    Clip::Malfunctioning,
+    Clip::PutMeDown,
+    Clip::WhoAreYou,
+    Clip::PleasePutMeDown,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,21 +112,29 @@ enum CurrentlyPlaying {
     Second,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(clippy::large_enum_variant)]
 enum PlayState {
     Idle,
     Playing {
-        path: &'static str,
-        offset: usize,
-        current: CurrentlyPlaying,
-        next_buffer_size: usize,
+        file: File<'static, Storage>,
+        current_buffer: CurrentlyPlaying,
+        bytes_in_next_buffer: usize,
         buf1: [u8; BUF_SIZE],
         buf2: [u8; BUF_SIZE],
     },
 }
 
+impl PlayState {
+    fn is_idle(&self) -> bool {
+        match self {
+            PlayState::Idle => true,
+            _ => false,
+        }
+    }
+}
+
 struct State {
+    // fs: &'static FileSystem<Storage>,
     audio_enable: AudioEnable,
     play_state: PlayState,
 }
@@ -110,13 +150,13 @@ impl State {
         })
     }
 
-    fn pick_clip(&self, clips: &[&'static str]) -> &'static str {
+    fn pick_clip(&self, clips: &[Clip]) -> Clip {
         // TODO select randomly
         clips[0]
     }
 
     fn play(&mut self, sound: Sound) -> Result<(), Error> {
-        if self.play_state == PlayState::Idle {
+        if !self.play_state.is_idle() {
             rprintln!("Audio busy");
             return Ok(());
         }
@@ -130,15 +170,14 @@ impl State {
             Sound::TargetLost => TARGET_LOST_CLIPS,
             Sound::PickedUp => PICKED_UP_CLIPS,
         };
-        let filename = self.pick_clip(clips);
+        let file = self.pick_clip(clips);
 
-        rprintln!("playing {:?}", filename);
+        rprintln!("playing {:?}", file);
 
         // self.play_state = PlayState::Playing {
-        //     path: filename,
-        //     offset: 0,
-        //     current: CurrentlyPlaying::First,
-        //     next_buffer_size: 0,
+        //     file: ,
+        //     current_buffer: CurrentlyPlaying::First,
+        //     bytes_in_next_buffer: 0,
         //     buf1: [0; BUF_SIZE],
         //     buf2: [0; BUF_SIZE],
         // };
