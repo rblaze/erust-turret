@@ -47,6 +47,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "bytes"
+version = "1.4.0"
+source = "git+https://github.com/rblaze/embedded-bytes.git#0fbec85492c4221daab0a0bce7ffa5d4f879993c"
+
+[[package]]
 name = "calibration"
 version = "0.1.0"
 dependencies = [
@@ -127,6 +132,7 @@ dependencies = [
  "panic-probe",
  "rtt-target",
  "servo",
+ "simplefs",
  "stm32f1xx-hal",
  "vl53l1x",
 ]
@@ -334,6 +340,13 @@ version = "0.1.0"
 dependencies = [
  "embedded-hal",
  "num",
+]
+
+[[package]]
+name = "simplefs"
+version = "0.1.0"
+dependencies = [
+ "bytes",
 ]
 
 [[package]]

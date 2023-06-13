@@ -6,6 +6,7 @@ mod board;
 mod error;
 mod event_queue;
 mod ranging;
+mod storage;
 mod system_time;
 mod targeting;
 

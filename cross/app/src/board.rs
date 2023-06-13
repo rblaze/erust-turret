@@ -2,6 +2,7 @@
 
 use crate::error::Error;
 use crate::system_time::Ticker;
+use crate::storage::SoundStorage;
 
 use num::rational::Ratio;
 use rtt_target::rprintln;
@@ -40,7 +41,7 @@ type SpiMiso = PB14<Input<Floating>>;
 type SpiMosi = PB15<Alternate<PushPull>>;
 
 pub type AudioEnable = PA4<Output<PushPull>>;
-pub struct Storage;
+pub type Storage = SoundStorage;
 // pub type Storage = SoundStorage<Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>, SpiCs>;
 
 pub struct Board {
