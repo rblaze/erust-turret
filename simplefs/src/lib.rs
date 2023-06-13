@@ -37,7 +37,7 @@ pub struct FileSystem<S> {
 }
 
 impl<S: Storage> FileSystem<S> {
-    pub fn mount_and<R>(storage: S, f: impl Fn(&Self) -> R) -> Result<R, Error<S::Error>> {
+    pub fn mount(storage: S) -> Result<Self, Error<S::Error>> {
         if storage.capacity() < size_of::<FilesystemHeader>() {
             return Err(Error::CorruptedFileSystem);
         }
@@ -57,12 +57,10 @@ impl<S: Storage> FileSystem<S> {
             return Err(Error::CorruptedFileSystem);
         }
 
-        let fs = FileSystem {
+        Ok(FileSystem {
             storage,
             num_files: header.num_files,
-        };
-
-        Ok(f(&fs))
+        })
     }
 
     pub fn get_num_files(&self) -> u16 {

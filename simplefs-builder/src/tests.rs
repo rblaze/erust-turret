@@ -63,12 +63,10 @@ fn test_empty_fs_build() {
     assert_eq!(signature, simplefs::SIGNATURE);
     assert_eq!(num_files, 0);
 
-    FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
-        assert_eq!(fs.get_num_files(), 0);
-        let status = fs.open(0).expect_err("open non-existent file");
-        assert_eq!(status, Error::InvalidFileIndex);
-    })
-    .expect("filesystem mount");
+    let fs = FileSystem::mount(RamStorage::new(image_bytes)).expect("filesystem mount");
+    assert_eq!(fs.get_num_files(), 0);
+    let status = fs.open(0).expect_err("open non-existent file");
+    assert_eq!(status, Error::InvalidFileIndex);
 }
 
 #[test]
@@ -92,12 +90,10 @@ fn test_single_file_fs_build() {
     assert_eq!(signature, simplefs::SIGNATURE);
     assert_eq!(num_files, 1);
 
-    FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
-        assert_eq!(fs.get_num_files(), 1);
-        let buf = read_full_file(&fs, 0);
-        assert_eq!(filedata, buf);
-    })
-    .expect("filesystem mount");
+    let fs = FileSystem::mount(RamStorage::new(image_bytes)).expect("filesystem mount");
+    assert_eq!(fs.get_num_files(), 1);
+    let buf = read_full_file(&fs, 0);
+    assert_eq!(filedata, buf);
 }
 
 #[derive(Debug, Clone)]
@@ -127,17 +123,15 @@ fn test_valid_fs_build(files: Vec<QuickCheckFileData>) -> bool {
         Err(_) => return false
     };
 
-    FileSystem::mount_and(RamStorage::new(image_bytes), |fs| {
-        if fs.get_num_files() as usize != files.len() {
-            return false;
-        }
+    let fs = FileSystem::mount(RamStorage::new(image_bytes)).expect("filesystem mount");
+    if fs.get_num_files() as usize != files.len() {
+        return false;
+    }
 
-        // Check that file contents are read correctly
-        files.iter().enumerate().all(|(i, file)| {
-            let buf = read_full_file(&fs, i);
-            file.data == buf
-        })
+    // Check that file contents are read correctly
+    files.iter().enumerate().all(|(i, file)| {
+        let buf = read_full_file(&fs, i);
+        file.data == buf
     })
-    .expect("filesystem mount")
 }
 }
