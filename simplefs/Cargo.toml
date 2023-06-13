@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bytes = { version = "1.4", default-features = false }
+bytes = { git = "https://github.com/rblaze/embedded-bytes.git", default-features = false }
