@@ -111,16 +111,14 @@ enum CurrentlyPlaying {
     Second,
 }
 
-#[allow(clippy::large_enum_variant)]
 enum PlayState {
     Idle,
     Playing {
         file: File<'static, Storage>,
         current_buffer: CurrentlyPlaying,
         bytes_in_next_buffer: usize,
-        buf1: [u8; BUF_SIZE],
-        buf2: [u8; BUF_SIZE],
     },
+    LastBlock,
 }
 
 impl PlayState {
@@ -136,6 +134,8 @@ struct State {
     fs: FileSystem<Storage>,
     audio_enable: AudioEnable,
     play_state: PlayState,
+    buf1: [u8; BUF_SIZE],
+    buf2: [u8; BUF_SIZE],
 }
 
 impl State {
@@ -144,6 +144,8 @@ impl State {
             fs: FileSystem::mount(storage)?,
             audio_enable,
             play_state: PlayState::Idle,
+            buf1: [0; BUF_SIZE],
+            buf2: [0; BUF_SIZE],
         })
     }
 
@@ -171,23 +173,76 @@ impl State {
 
         rprintln!("playing {:?}", clip);
 
-        let file = self.fs.open(clip.file_index())?;
+        let mut file = self.fs.open(clip.file_index())?;
+        let bytes_read = file.read(&mut self.buf1)?;
 
-        self.play_state = PlayState::Playing {
-            // Filesystem is never unmounted, so it is safe to get static reference.
-            file: unsafe { core::mem::transmute(file) },
-            current_buffer: CurrentlyPlaying::First,
-            bytes_in_next_buffer: 0,
-            buf1: [0; BUF_SIZE],
-            buf2: [0; BUF_SIZE],
-        };
+        if bytes_read == 0 {
+            rprintln!("Clip data is empty");
+            return Ok(());
+        }
 
-        // Read first buffer.
-        // Enable audio.
-        // Start reading second buffer.
-        // Start playing first buffer.
+        if bytes_read != BUF_SIZE {
+            self.play_state = PlayState::LastBlock;
+        } else {
+            self.play_state = PlayState::Playing {
+                // Filesystem is never unmounted, so it is safe to get static reference.
+                file: unsafe { core::mem::transmute(file) },
+                current_buffer: CurrentlyPlaying::First,
+                bytes_in_next_buffer: 0,
+            };
+        }
+
+        {
+            self.start_playback()?;
+            self.play_next_buffer()?;
+            Ok(())
+        }
+        .or_else(|err: Error| {
+            rprintln!("Error while starting sound: {:?}", err);
+
+            self.end_playback();
+
+            Err(err)
+        })?;
 
         Ok(())
+    }
+
+    fn start_playback(&mut self) -> Result<(), Error> {
+        // Init sound hardware
+        self.audio_enable.set_high();
+
+        Ok(())
+    }
+
+    fn play_next_buffer(&mut self) -> Result<(), Error> {
+        match &mut self.play_state {
+            PlayState::Idle => {
+                debug_assert!(!self.play_state.is_idle());
+                rprintln!("play_next_block called in Idle state");
+            }
+            PlayState::Playing {
+                file,
+                current_buffer,
+                bytes_in_next_buffer,
+            } => {
+                todo!()
+                // Start playing next buffer
+                // Read more data
+            }
+            PlayState::LastBlock => {
+                self.end_playback();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn end_playback(&mut self) {
+        debug_assert!(self.play_state.is_idle());
+
+        // Disable sound hardware
+        self.audio_enable.set_low();
     }
 }
 
