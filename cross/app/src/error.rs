@@ -6,7 +6,7 @@ use core::num::TryFromIntError;
 #[derive(Debug)]
 pub enum Error {
     Servo(servo::Error),
-    Sensor(vl53l1x::Error<nb::Error<stm32f1xx_hal::i2c::Error>>),
+    Sensor(vl53l1x::Error<stm32f1xx_hal::i2c::Error>),
     FileSystem(simplefs::Error<StorageError>),
     InvalidDuration,
     InvalidScale,
@@ -21,8 +21,8 @@ impl From<servo::Error> for Error {
     }
 }
 
-impl From<vl53l1x::Error<nb::Error<stm32f1xx_hal::i2c::Error>>> for Error {
-    fn from(sensor_error: vl53l1x::Error<nb::Error<stm32f1xx_hal::i2c::Error>>) -> Self {
+impl From<vl53l1x::Error<stm32f1xx_hal::i2c::Error>> for Error {
+    fn from(sensor_error: vl53l1x::Error<stm32f1xx_hal::i2c::Error>) -> Self {
         Error::Sensor(sensor_error)
     }
 }
