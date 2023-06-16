@@ -3,8 +3,8 @@ use crate::builder::SimpleFsBuilder;
 use anyhow::Result;
 use clap::Parser;
 use std::fs::File;
-use std::io::Write;
 use std::io::Read;
+use std::io::Write;
 
 mod builder;
 
@@ -38,7 +38,11 @@ fn main() -> Result<()> {
 
     let bytes = builder.finalize()?;
 
-    println!("Writing image to {}, size {} bytes", args.output.display(), bytes.len());
+    println!(
+        "Writing image to {}, size {} bytes",
+        args.output.display(),
+        bytes.len()
+    );
     let mut image_file = File::create(args.output)?;
     image_file.write_all(&bytes)?;
 
