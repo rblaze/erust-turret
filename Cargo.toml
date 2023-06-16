@@ -5,6 +5,5 @@ members = [
   "simplefs",
   "simplefs-builder",
   "servo",
-  "spi-memory",
   "VL53L1X",
 ]

@@ -627,15 +627,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spi-memory"
-version = "0.3.0"
-dependencies = [
- "bitflags",
- "embedded-hal",
- "log",
-]
-
-[[package]]
 name = "statrs"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
