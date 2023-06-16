@@ -1,8 +1,8 @@
 #![deny(unsafe_code)]
 
 use crate::error::Error;
-use crate::system_time::Ticker;
 use crate::storage::SoundStorage;
+use crate::system_time::Ticker;
 
 use num::rational::Ratio;
 use rtt_target::rprintln;
@@ -35,14 +35,14 @@ pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
 pub type Led = PB3<Output<PushPull>>;
 type Button = PB5<Input<PullDown>>;
 
-type SpiCs = PB12<Output<PushPull>>;
+pub type SpiCs = PB12<Output<PushPull>>;
 type SpiClk = PB13<Alternate<PushPull>>;
 type SpiMiso = PB14<Input<Floating>>;
 type SpiMosi = PB15<Alternate<PushPull>>;
+pub type SpiBus = Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>;
 
 pub type AudioEnable = PA4<Output<PushPull>>;
 pub type Storage = SoundStorage;
-// pub type Storage = SoundStorage<Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>, SpiCs>;
 
 pub struct Board {
     pub ticker: Ticker,
@@ -144,7 +144,7 @@ impl Board {
             clocks,
         );
 
-        let storage = Storage{}; // SoundStorage::new(spi, spi_cs)?;
+        let storage = SoundStorage::new(spi, spi_cs)?;
         let audio_enable = gpioa.pa4.into_push_pull_output(&mut gpioa.crl);
 
         let scl = gpiob.pb6.into_alternate_open_drain(&mut gpiob.crl);

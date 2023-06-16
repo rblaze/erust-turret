@@ -1,6 +1,7 @@
 use crate::board::{AudioEnable, Storage};
 use crate::error::Error;
 use core::cell::RefCell;
+use event_queue::Event;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
 
@@ -105,37 +106,21 @@ const PICKED_UP_CLIPS: &[Clip] = &[
     Clip::PleasePutMeDown,
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CurrentlyPlaying {
-    First,
-    Second,
-}
-
 enum PlayState {
     Idle,
     Playing {
         file: File<'static, Storage>,
-        current_buffer: CurrentlyPlaying,
+        next_buffer_index: usize,
         bytes_in_next_buffer: usize,
     },
     LastBlock,
-}
-
-impl PlayState {
-    fn is_idle(&self) -> bool {
-        match self {
-            PlayState::Idle => true,
-            _ => false,
-        }
-    }
 }
 
 struct State {
     fs: FileSystem<Storage>,
     audio_enable: AudioEnable,
     play_state: PlayState,
-    buf1: [u8; BUF_SIZE],
-    buf2: [u8; BUF_SIZE],
+    buffers: [[u8; BUF_SIZE]; 2],
 }
 
 impl State {
@@ -144,8 +129,7 @@ impl State {
             fs: FileSystem::mount(storage)?,
             audio_enable,
             play_state: PlayState::Idle,
-            buf1: [0; BUF_SIZE],
-            buf2: [0; BUF_SIZE],
+            buffers: [[0; BUF_SIZE]; 2],
         })
     }
 
@@ -155,7 +139,7 @@ impl State {
     }
 
     fn play(&mut self, sound: Sound) -> Result<(), Error> {
-        if !self.play_state.is_idle() {
+        if !matches!(self.play_state, PlayState::Idle) {
             rprintln!("Audio busy");
             return Ok(());
         }
@@ -174,61 +158,57 @@ impl State {
         rprintln!("playing {:?}", clip);
 
         let mut file = self.fs.open(clip.file_index())?;
-        let bytes_read = file.read(&mut self.buf1)?;
+        let bytes_read = file.read(&mut self.buffers[0])?;
 
         if bytes_read == 0 {
             rprintln!("Clip data is empty");
             return Ok(());
         }
 
-        if bytes_read != BUF_SIZE {
-            self.play_state = PlayState::LastBlock;
-        } else {
-            self.play_state = PlayState::Playing {
-                // Filesystem is never unmounted, so it is safe to get static reference.
-                file: unsafe { core::mem::transmute(file) },
-                current_buffer: CurrentlyPlaying::First,
-                bytes_in_next_buffer: 0,
-            };
-        }
+        self.play_state = PlayState::Playing {
+            // Filesystem is never unmounted, so it is safe to get static reference.
+            file: unsafe { core::mem::transmute(file) },
+            next_buffer_index: 0,
+            bytes_in_next_buffer: bytes_read,
+        };
 
         {
             self.start_playback()?;
-            self.play_next_buffer()?;
-            Ok(())
+            self.play_next_buffer()
         }
-        .or_else(|err: Error| {
+        .map_err(|err| {
             rprintln!("Error while starting sound: {:?}", err);
-
             self.end_playback();
 
-            Err(err)
+            err
         })?;
 
         Ok(())
     }
 
-    fn start_playback(&mut self) -> Result<(), Error> {
-        // Init sound hardware
-        self.audio_enable.set_high();
-
-        Ok(())
-    }
-
     fn play_next_buffer(&mut self) -> Result<(), Error> {
-        match &mut self.play_state {
+        let state = &mut self.play_state;
+        match state {
             PlayState::Idle => {
-                debug_assert!(!self.play_state.is_idle());
+                debug_assert!(!matches!(self.play_state, PlayState::Idle));
                 rprintln!("play_next_block called in Idle state");
             }
             PlayState::Playing {
                 file,
-                current_buffer,
+                next_buffer_index,
                 bytes_in_next_buffer,
             } => {
-                todo!()
+                let play_buffer_index = *next_buffer_index;
+                *next_buffer_index = (play_buffer_index + 1) % 2;
+
                 // Start playing next buffer
+                Self::play_buffer(&self.buffers[play_buffer_index])?;
+
                 // Read more data
+                *bytes_in_next_buffer = file.read(&mut self.buffers[*next_buffer_index])?;
+                if *bytes_in_next_buffer == 0 {
+                    self.play_state = PlayState::LastBlock;
+                }
             }
             PlayState::LastBlock => {
                 self.end_playback();
@@ -238,11 +218,28 @@ impl State {
         Ok(())
     }
 
-    fn end_playback(&mut self) {
-        debug_assert!(self.play_state.is_idle());
+    fn start_playback(&mut self) -> Result<(), Error> {
+        // TODO: init sound hardware
+        self.audio_enable.set_high();
 
-        // Disable sound hardware
+        Ok(())
+    }
+
+    fn play_buffer(_buffer: &[u8]) -> Result<(), Error> {
+        // TODO: trigger DMA
+
+        // FIXME: until DMA is here, schedule next iteration immediatelly.
+        PLAY_NEXT_BUFFER.call();
+        Ok(())
+    }
+
+    fn end_playback(&mut self) {
+        debug_assert!(!matches!(self.play_state, PlayState::Idle));
+
         self.audio_enable.set_low();
+        // TODO: disable sound hardware
+
+        self.play_state = PlayState::Idle;
     }
 }
 
@@ -277,3 +274,6 @@ impl StaticState {
 unsafe impl Sync for StaticState {}
 
 static STATE: StaticState = StaticState::new();
+
+static PLAY_NEXT_BUFFER: Event =
+    Event::new(&|| STATE.with(|state| state.play_next_buffer()).unwrap());

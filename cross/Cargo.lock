@@ -134,6 +134,7 @@ dependencies = [
  "rtt-target",
  "servo",
  "simplefs",
+ "spi-memory",
  "stm32f1xx-hal",
  "vl53l1x",
 ]
@@ -285,9 +286,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.59"
+version = "1.0.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aeca18b86b413c660b781aa319e4e2648a3e6f9eadc9b47e9038e6fe9f3451b"
+checksum = "dec2b086b7a862cf4de201096214fa870344cf922b2b30c167badb3af3195406"
 dependencies = [
  "unicode-ident",
 ]
@@ -348,6 +349,16 @@ name = "simplefs"
 version = "0.1.0"
 dependencies = [
  "bytes",
+]
+
+[[package]]
+name = "spi-memory"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f94caf9e6bd5673e05be1a3f4113b85cdc7976a1ac8bc2763731ae5a4acee4a9"
+dependencies = [
+ "bitflags",
+ "embedded-hal",
 ]
 
 [[package]]

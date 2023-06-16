@@ -133,32 +133,32 @@ impl<'h> Event<'h> {
         }
     }
 
-    // Cancel dispatch of the event.
-    // This function is interrupt-safe.
+    /// Cancel dispatch of the event.
+    /// This function is interrupt-safe.
     pub fn cancel(&self) {
         critical_section::with(|cs| {
             self.state.replace(cs, EventState::Done);
         });
     }
 
-    // Post event into message queue for immediate dispatch.
-    // This function is interrupt-safe.
+    /// Post event into message queue for immediate dispatch.
+    /// This function is interrupt-safe.
     pub fn call(&self) {
         critical_section::with(|cs| {
             self.state.replace(cs, EventState::DispatchNow);
         });
     }
 
-    // Post an event into message queue with a delay before dispatching the event.
-    // This function is interrupt-safe.
+    /// Post an event into message queue with a delay before dispatching the event.
+    /// This function is interrupt-safe.
     pub fn call_on(&self, time: TICKS) {
         critical_section::with(|cs| {
             self.state.replace(cs, EventState::DispatchAt(time));
         });
     }
 
-    // Set period for repeatedly dispatching an event.
-    // This function is interrupt-safe.
+    /// Set period for repeatedly dispatching an event.
+    /// This function is interrupt-safe.
     pub fn period(&self, period: TICKS) {
         critical_section::with(|cs| {
             self.period.borrow(cs).set(Some(period));
