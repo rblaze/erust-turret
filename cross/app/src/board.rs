@@ -7,42 +7,23 @@ use crate::system_time::Ticker;
 use num::rational::Ratio;
 use rtt_target::rprintln;
 use servo::{Bounds, Servo};
-use stm32f1xx_hal::device::{I2C1, TIM1};
-use stm32f1xx_hal::gpio::{Alternate, Input, Output};
-use stm32f1xx_hal::gpio::{Floating, OpenDrain, PullDown, PushPull};
-use stm32f1xx_hal::gpio::{PA4, PA5, PA8, PA9, PB12, PB13, PB14, PB15, PB3, PB5, PB6, PB7};
-use stm32f1xx_hal::i2c::{BlockingI2c, I2c, Mode};
+use stm32f1xx_hal::device::TIM1;
+use stm32f1xx_hal::i2c::{I2c, Mode};
 use stm32f1xx_hal::prelude::*;
-use stm32f1xx_hal::spi::{Spi, Spi2NoRemap};
+use stm32f1xx_hal::spi::Spi;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
 use stm32f1xx_hal::timer::{PwmChannel, Timer};
 use stm32f1xx_hal::{adc, pac};
 use vl53l1x::{BootState, VL53L1X};
 
-const SERVO_FREQ: Hertz = Hertz::Hz(50);
+pub use board::{AudioEnable, Laser, Led, SpiBus, SpiCs};
 
-type I2cScl = PB6<Alternate<OpenDrain>>;
-type I2cSda = PB7<Alternate<OpenDrain>>;
-type I2cBus = BlockingI2c<I2C1, (I2cScl, I2cSda)>;
-pub type Sensor = VL53L1X<I2cBus>;
-type SensorServoPin = PA8<Alternate<PushPull>>;
+pub type Sensor = VL53L1X<board::I2cBus>;
 pub type SensorServo = Servo<PwmChannel<TIM1, 0>>;
-
-pub type Laser = PA5<Output<PushPull>>;
-type LaserServoPin = PA9<Alternate<PushPull>>;
 pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
-
-pub type Led = PB3<Output<PushPull>>;
-type Button = PB5<Input<PullDown>>;
-
-pub type SpiCs = PB12<Output<PushPull>>;
-type SpiClk = PB13<Alternate<PushPull>>;
-type SpiMiso = PB14<Input<Floating>>;
-type SpiMosi = PB15<Alternate<PushPull>>;
-pub type SpiBus = Spi<pac::SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>;
-
-pub type AudioEnable = PA4<Output<PushPull>>;
 pub type Storage = SoundStorage;
+
+const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
 pub struct Board {
     pub ticker: Ticker,
@@ -51,7 +32,7 @@ pub struct Board {
     pub sensor: Sensor,
     pub sensor_servo: SensorServo,
     pub target_lock_led: Led,
-    pub button: Button,
+    pub button: board::Button,
     pub adc_ratio: Ratio<u16>,
     pub storage: Storage,
     pub audio_enable: AudioEnable,
@@ -100,8 +81,10 @@ impl Board {
         let button = gpiob.pb5.into_pull_down_input(&mut gpiob.crl);
         let laser_led = gpioa.pa5.into_push_pull_output(&mut gpioa.crl);
 
-        let sensor_servo_pin: SensorServoPin = gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
-        let laser_servo_pin: LaserServoPin = gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
+        let sensor_servo_pin: board::SensorServoPin =
+            gpioa.pa8.into_alternate_push_pull(&mut gpioa.crh);
+        let laser_servo_pin: board::LaserServoPin =
+            gpioa.pa9.into_alternate_push_pull(&mut gpioa.crh);
 
         let (sensor_servo_pwm, laser_servo_pwm) = dp
             .TIM1
