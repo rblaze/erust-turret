@@ -2,24 +2,30 @@
 
 use crate::error::Error;
 
-// use rtt_target::rprintln;
+use stm32f1xx_hal::device::USART2;
+use stm32f1xx_hal::dma::dma1::C6;
 use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
-use stm32f1xx_hal::serial::Config;
+use stm32f1xx_hal::serial::{Config, Rx, Tx};
 use stm32f1xx_hal::spi::Spi;
 
 pub use board::{Button, Led, SpiBus, SpiCs, Uart};
 pub type SpiMemory = spi_memory::series25::Flash<SpiBus, SpiCs>;
+pub type SerTx = Tx<USART2>;
+pub type SerRx = Rx<USART2>;
+pub type SerDma = C6;
 
 pub struct Board {
-    button: Button,
-    led: Led,
-    serial: Uart,
-    memory: SpiMemory,
+    pub button: Button,
+    pub led: Led,
+    pub tx: SerTx,
+    pub rx: SerRx,
+    pub dma: SerDma,
+    pub memory: SpiMemory,
 }
 
 impl Board {
-    pub fn new(cp: pac::CorePeripherals, dp: pac::Peripherals) -> Result<Self, Error> {
+    pub fn new(dp: pac::Peripherals) -> Result<Self, Error> {
         // Enable debug while sleeping to keep probe-rs happy while WFI
         dp.DBGMCU.cr.modify(|_, w| {
             w.dbg_sleep().set_bit();
@@ -34,6 +40,9 @@ impl Board {
         let clocks = rcc.cfgr.sysclk(64.MHz()).freeze(&mut flash.acr);
 
         let mut afio = dp.AFIO.constrain();
+
+        // Acquire DMA
+        let dma1 = dp.DMA1.split();
 
         // Acquire the GPIO peripherals.
         let mut gpioa = dp.GPIOA.split();
@@ -73,10 +82,14 @@ impl Board {
             &clocks,
         );
 
+        let (tx, rx) = serial.split();
+
         Ok(Board {
             button,
             led,
-            serial,
+            tx,
+            rx,
+            dma: dma1.6,
             memory,
         })
     }
