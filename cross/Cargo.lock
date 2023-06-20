@@ -36,6 +36,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "board"
+version = "0.1.0"
+dependencies = [
+ "stm32f1xx-hal",
+]
+
+[[package]]
 name = "bxcan"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -121,6 +128,7 @@ dependencies = [
 name = "erust-turret"
 version = "0.1.0"
 dependencies = [
+ "board",
  "calibration",
  "cortex-m",
  "cortex-m-rt",
@@ -145,6 +153,22 @@ version = "0.1.0"
 dependencies = [
  "critical-section",
  "intrusive-collections",
+]
+
+[[package]]
+name = "flash-writer"
+version = "0.1.0"
+dependencies = [
+ "board",
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "embedded-hal",
+ "fugit",
+ "panic-probe",
+ "rtt-target",
+ "spi-memory",
+ "stm32f1xx-hal",
 ]
 
 [[package]]
