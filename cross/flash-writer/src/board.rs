@@ -2,6 +2,7 @@
 
 use crate::error::Error;
 
+use stm32f1xx_hal::crc::Crc;
 use stm32f1xx_hal::device::USART2;
 use stm32f1xx_hal::dma::dma1::C6;
 use stm32f1xx_hal::pac;
@@ -22,6 +23,7 @@ pub struct Board {
     pub rx: SerRx,
     pub dma: SerDma,
     pub memory: SpiMemory,
+    pub crc: Crc,
 }
 
 impl Board {
@@ -81,8 +83,9 @@ impl Board {
                 .parity_none(),
             &clocks,
         );
-
         let (tx, rx) = serial.split();
+
+        let crc = dp.CRC.new();
 
         Ok(Board {
             button,
@@ -91,6 +94,7 @@ impl Board {
             rx,
             dma: dma1.6,
             memory,
+            crc,
         })
     }
 }
