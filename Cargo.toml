@@ -3,6 +3,7 @@ members = [
   "board",
   "calibration",
   "event_queue",
+  "send-flash-image",
   "simplefs",
   "simplefs-builder",
   "servo",

@@ -61,7 +61,7 @@ enum Clip {
     SfxAlert,
     IsAnyoneThere,
     Hellooooo,
-    IAmStillThere,
+    AreYouStillThere,
     TargetLost,
     Malfunctioning,
     PutMeDown,
@@ -96,7 +96,7 @@ const CONTACT_RESTORED_CLIPS: &[Clip] = &[Clip::SfxPing, Clip::Hi, Clip::SfxAler
 const TARGET_LOST_CLIPS: &[Clip] = &[
     Clip::IsAnyoneThere,
     Clip::Hellooooo,
-    Clip::IAmStillThere,
+    Clip::AreYouStillThere,
     Clip::TargetLost,
 ];
 const PICKED_UP_CLIPS: &[Clip] = &[

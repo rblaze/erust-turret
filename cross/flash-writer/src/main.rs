@@ -42,10 +42,19 @@ fn main() -> ! {
     // Read total data length, u32be
     let mut total_len_buf = [0; 4];
     for byte in total_len_buf.iter_mut() {
-        *byte = block!(rx.read()).unwrap();
+        loop {
+            if let Ok(b) = block!(rx.read()) {
+                *byte = b;
+                break;
+            }
+        }
     }
     let total_len = u32::from_be_bytes(total_len_buf) as usize;
     rprintln!("Expected image length {} bytes", total_len);
+
+    if total_len % 4 != 0 {
+        panic!("Image length must be a multiple of 4");
+    }
 
     // Send block length, u16be
     tx.bwrite_all((BLOCK_LEN as u16).to_be_bytes().as_ref())
@@ -71,34 +80,36 @@ fn main() -> ! {
         let mut data_bytes = &bytes[..expected_bytes];
 
         board.crc.reset();
-        while data_bytes.remaining() > 4 {
+        while data_bytes.remaining() > 0 {
             board.crc.write(data_bytes.get_u32());
-        }
-        if data_bytes.remaining() > 0 {
-            let mut buf = [0; 4];
-            let mut index = 0;
-            while data_bytes.remaining() > 0 {
-                buf[index] = data_bytes.get_u8();
-                index += 1;
-            }
-            board.crc.write(u32::from_be_bytes(buf));
         }
         let actual_crc = board.crc.read();
         if actual_crc != expected_crc {
+            // Send NACK
+            block!(tx.write(88)).unwrap();
             panic!(
-                "crc mismatch: received {}, calculated {}",
+                "crc mismatch: received {:x}, calculated {:x}",
                 expected_crc, actual_crc
             );
         }
 
         // Write to flash
         rprintln!("Writing block");
+        board
+            .memory
+            .write_bytes(
+                (current_block * BLOCK_LEN) as u32,
+                &mut bytes[..expected_bytes],
+            )
+            .unwrap();
 
         // Send confirmation
         block!(tx.write(42)).unwrap();
 
         current_block += 1;
     }
+
+    rprintln!("All done");
 
     loop {
         wfi();
