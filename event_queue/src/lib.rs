@@ -100,7 +100,6 @@ impl<'h> Debug for Handler<'h> {
     }
 }
 
-#[derive(Debug)]
 pub struct Event<'h> {
     // Only changes in EventQueue::bind(), no locking necessary.
     link: LinkedListLink,
@@ -110,6 +109,21 @@ pub struct Event<'h> {
     period: Mutex<Cell<Option<TICKS>>>,
     // Never changes, no locking necessary.
     handler: RefCell<Handler<'h>>,
+}
+
+impl Debug for Event<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("Event")
+            .field(
+                "state",
+                &critical_section::with(|cs| *self.state.borrow_ref(cs)),
+            )
+            .field(
+                "period",
+                &critical_section::with(|cs| self.period.borrow(cs).get()),
+            )
+            .finish()
+    }
 }
 
 unsafe impl<'h> Sync for Event<'h> {}
