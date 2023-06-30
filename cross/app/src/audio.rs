@@ -1,7 +1,7 @@
 use crate::board::{AudioEnable, Storage};
 use crate::error::Error;
+use crate::event_queue::{Event, EventQueue};
 use core::cell::RefCell;
-use event_queue::Event;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
 
@@ -21,8 +21,13 @@ pub enum Sound {
 pub struct Audio;
 
 impl Audio {
-    pub fn new(storage: Storage, audio_enable: AudioEnable) -> Result<Audio, Error> {
+    pub fn new(
+        event_queue: &mut EventQueue<'_, 'static>,
+        storage: Storage,
+        audio_enable: AudioEnable,
+    ) -> Result<Audio, Error> {
         STATE.set(State::init(storage, audio_enable)?);
+        event_queue.bind(&PLAY_NEXT_BUFFER);
 
         Ok(Audio {})
     }
@@ -229,6 +234,7 @@ impl State {
         // TODO: trigger DMA
 
         // FIXME: until DMA is here, schedule next iteration immediatelly.
+        rprintln!("Playing buffer");
         PLAY_NEXT_BUFFER.call();
         Ok(())
     }
