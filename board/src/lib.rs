@@ -5,7 +5,7 @@ use stm32f1xx_hal::device::{I2C1, USART2};
 use stm32f1xx_hal::gpio::{Alternate, Input, Output};
 use stm32f1xx_hal::gpio::{Floating, OpenDrain, PullDown, PushPull};
 use stm32f1xx_hal::gpio::{
-    PA2, PA3, PA4, PA5, PA8, PA9, PB12, PB13, PB14, PB15, PB3, PB5, PB6, PB7,
+    PA2, PA3, PA4, PA5, PA8, PA9, PB0, PB12, PB13, PB14, PB15, PB3, PB5, PB6, PB7,
 };
 use stm32f1xx_hal::i2c::BlockingI2c;
 use stm32f1xx_hal::pac::SPI2;
@@ -31,6 +31,7 @@ pub type SpiMosi = PB15<Alternate<PushPull>>;
 pub type SpiBus = Spi<SPI2, Spi2NoRemap, (SpiClk, SpiMiso, SpiMosi), u8>;
 
 pub type AudioEnable = PA4<Output<PushPull>>;
+pub type AudioPwmPin = PB0<Alternate<PushPull>>;
 
 pub type SerialTx = PA2<Alternate<PushPull>>;
 pub type SerialRx = PA3<Input<Floating>>;

@@ -1,19 +1,21 @@
-#![deny(unsafe_code)]
-
+// use crate::audio::SOUND_FREQ;
 use crate::error::Error;
 use crate::storage::SoundStorage;
 use crate::system_time::Ticker;
 
+use fugit::TimerDurationU32;
 use num::rational::Ratio;
 use rtt_target::rprintln;
 use servo::{Bounds, Servo};
-use stm32f1xx_hal::device::TIM1;
+use stm32f1xx_hal::adc::Adc;
+use stm32f1xx_hal::device::{TIM1, TIM3};
+use stm32f1xx_hal::dma::dma1;
 use stm32f1xx_hal::i2c::{I2c, Mode};
+use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::spi::Spi;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
-use stm32f1xx_hal::timer::{PwmChannel, Timer};
-use stm32f1xx_hal::{adc, pac};
+use stm32f1xx_hal::timer::{Ch, Pwm, PwmChannel, Tim3NoRemap, Timer};
 use vl53l1x::{BootState, VL53L1X};
 
 pub use board::{AudioEnable, Laser, Led, SpiBus, SpiCs};
@@ -22,6 +24,8 @@ pub type Sensor = VL53L1X<board::I2cBus>;
 pub type SensorServo = Servo<PwmChannel<TIM1, 0>>;
 pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
 pub type Storage = SoundStorage;
+pub type AudioDma = dma1::C5;
+pub type AudioPwm = Pwm<TIM3, Tim3NoRemap, Ch<2>, board::AudioPwmPin, 4096>;
 
 const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
@@ -36,6 +40,8 @@ pub struct Board {
     pub adc_ratio: Ratio<u16>,
     pub storage: Storage,
     pub audio_enable: AudioEnable,
+    pub audio_dma: AudioDma,
+    pub audio_pwm: AudioPwm,
 }
 
 impl Board {
@@ -60,7 +66,7 @@ impl Board {
         let mut gpiob = dp.GPIOB.split();
 
         // Read servo range calibration value
-        let mut adc = adc::Adc::adc1(dp.ADC1, clocks);
+        let mut adc = Adc::adc1(dp.ADC1, clocks);
         let mut servo_range_ch = gpioa.pa1.into_analog(&mut gpioa.crl);
         let mut adc_value = adc.read(&mut servo_range_ch)?;
         let adc_max = adc.max_sample();
@@ -148,6 +154,26 @@ impl Board {
         }
         sensor.sensor_init()?;
 
+        // Audio hardware setup
+        // Setup TIM3 as PWM for audio output
+        let audio_pin: board::AudioPwmPin = gpiob.pb0.into_alternate_push_pull(&mut gpiob.crl);
+        let audio_pwm = dp.TIM3.pwm(
+            audio_pin,
+            &mut afio.mapr,
+            TimerDurationU32::from_ticks(256),
+            &clocks,
+        );
+
+        // TODO setup TIM2 as DMA driver (use sample frequency from audio)
+
+        // Enable audio DMA
+        let dma1 = dp.DMA1.split();
+        let audio_dma = dma1.5;
+
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA1_CHANNEL5);
+        }
+
         Ok(Board {
             ticker,
             laser_led,
@@ -159,6 +185,8 @@ impl Board {
             adc_ratio,
             storage,
             audio_enable,
+            audio_dma,
+            audio_pwm,
         })
     }
 }

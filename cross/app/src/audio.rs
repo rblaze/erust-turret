@@ -1,9 +1,11 @@
-use crate::board::{AudioEnable, Storage};
+use crate::board::{AudioEnable, AudioPwm, Storage};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue};
 use core::cell::RefCell;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
+use stm32f1xx_hal::pac::interrupt;
+use stm32f1xx_hal::timer::Channel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Sound {
@@ -25,8 +27,9 @@ impl Audio {
         event_queue: &mut EventQueue<'_, 'static>,
         storage: Storage,
         audio_enable: AudioEnable,
+        audio_pwm: AudioPwm,
     ) -> Result<Audio, Error> {
-        STATE.set(State::init(storage, audio_enable)?);
+        STATE.set(State::init(storage, audio_enable, audio_pwm)?);
         event_queue.bind(&PLAY_NEXT_BUFFER);
 
         Ok(Audio {})
@@ -39,9 +42,8 @@ impl Audio {
 
 #[allow(dead_code)]
 // Clips are unsigned 8 bit, 16 KHz.
-const SOUND_FREQ: u16 = 16000;
+pub const SOUND_FREQ: u32 = 16000;
 
-#[allow(dead_code)]
 // Sound buffer size.
 const BUF_SIZE: usize = 1024;
 
@@ -124,15 +126,21 @@ enum PlayState {
 struct State {
     fs: FileSystem<Storage>,
     audio_enable: AudioEnable,
+    audio_pwm: AudioPwm,
     play_state: PlayState,
     buffers: [[u8; BUF_SIZE]; 2],
 }
 
 impl State {
-    fn init(storage: Storage, audio_enable: AudioEnable) -> Result<Self, Error> {
+    fn init(
+        storage: Storage,
+        audio_enable: AudioEnable,
+        audio_pwm: AudioPwm,
+    ) -> Result<Self, Error> {
         Ok(State {
             fs: FileSystem::mount(storage)?,
             audio_enable,
+            audio_pwm,
             play_state: PlayState::Idle,
             buffers: [[0; BUF_SIZE]; 2],
         })
@@ -224,8 +232,9 @@ impl State {
     }
 
     fn start_playback(&mut self) -> Result<(), Error> {
-        // TODO: init sound hardware
+        // TODO: enable TIM2 and DMA
         self.audio_enable.set_high();
+        self.audio_pwm.enable(Channel::C2);
 
         Ok(())
     }
@@ -243,7 +252,9 @@ impl State {
         debug_assert!(!matches!(self.play_state, PlayState::Idle));
 
         self.audio_enable.set_low();
-        // TODO: disable sound hardware
+        self.audio_pwm.disable(Channel::C2);
+        self.audio_pwm.set_duty(Channel::C2, 0);
+        // TODO: disable TIM2 and DMA
 
         self.play_state = PlayState::Idle;
     }
@@ -283,3 +294,8 @@ static STATE: StaticState = StaticState::new();
 
 static PLAY_NEXT_BUFFER: Event =
     Event::new(&|| STATE.with(|state| state.play_next_buffer()).unwrap());
+
+#[interrupt]
+fn DMA1_CHANNEL5() {
+    PLAY_NEXT_BUFFER.call();
+}
