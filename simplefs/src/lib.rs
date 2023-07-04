@@ -113,12 +113,16 @@ impl<'a, S: Storage> File<'a, S> {
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error<S::Error>> {
         let max_read = self.file_size - self.read_position;
         let bytes_to_read = buf.len().min(max_read);
-        self.storage.read(
-            self.file_offset + self.read_position,
-            &mut buf[..bytes_to_read],
-        )?;
 
-        self.read_position += bytes_to_read;
+        if bytes_to_read > 0 {
+            self.storage.read(
+                self.file_offset + self.read_position,
+                &mut buf[..bytes_to_read],
+            )?;
+
+            self.read_position += bytes_to_read;
+        }
+
         Ok(bytes_to_read)
     }
 }
