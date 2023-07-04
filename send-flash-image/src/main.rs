@@ -46,6 +46,8 @@ fn main() -> Result<()> {
         image.extend(vec![0; 4 - image.len() % 4]);
     }
 
+    let image_crc = Crc::<u32>::new(&CRC_32_MPEG_2).checksum(&image);
+
     let mut device = OpenOptions::new()
         .read(true)
         .write(true)
@@ -75,6 +77,8 @@ fn main() -> Result<()> {
             Err(SendError::InvalidAck(ack[0]))?;
         }
     }
+
+    println!("Image crc: {:x}", image_crc);
 
     Ok(())
 }

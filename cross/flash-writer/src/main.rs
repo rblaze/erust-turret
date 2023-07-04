@@ -13,6 +13,7 @@ use cortex_m_rt::entry;
 use nb::block;
 use rtt_target::{rprintln, rtt_init_print};
 use spi_memory::BlockDevice;
+use spi_memory::Read;
 use stm32f1xx_hal::dma::ReadDma;
 use stm32f1xx_hal::pac;
 
@@ -109,6 +110,35 @@ fn main() -> ! {
         current_block += 1;
     }
 
+    rprintln!("Writes done");
+    board.crc.reset();
+
+    let mut current_block = 0;
+    while current_block * BLOCK_LEN < total_len {
+        let bytes_left = total_len - current_block * BLOCK_LEN;
+        let expected_bytes = min(BLOCK_LEN, bytes_left);
+        rprintln!(
+            "Reading block {} of {} bytes",
+            current_block,
+            expected_bytes
+        );
+
+        let buffer = unsafe { &mut BLOCK[..expected_bytes] };
+        board
+            .memory
+            .read((current_block * BLOCK_LEN) as u32, buffer)
+            .unwrap();
+
+        let mut data_bytes = &buffer[..];
+
+        while data_bytes.remaining() > 0 {
+            board.crc.write(data_bytes.get_u32());
+        }
+
+        current_block += 1;
+    }
+
+    rprintln!("Whole drive CRC: {:x}", board.crc.read());
     rprintln!("All done");
 
     loop {
