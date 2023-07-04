@@ -1,9 +1,11 @@
-use crate::board::{AudioEnable, AudioPwm, Storage};
+use crate::board::{AudioClock, AudioDma, AudioEnable, AudioPwm, Storage};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue};
 use core::cell::RefCell;
+use fugit::HertzU32;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
+use stm32f1xx_hal::device::DMA1;
 use stm32f1xx_hal::pac::interrupt;
 use stm32f1xx_hal::timer::Channel;
 
@@ -28,8 +30,16 @@ impl Audio {
         storage: Storage,
         audio_enable: AudioEnable,
         audio_pwm: AudioPwm,
+        audio_clock: AudioClock,
+        audio_dma: AudioDma,
     ) -> Result<Audio, Error> {
-        STATE.set(State::init(storage, audio_enable, audio_pwm)?);
+        STATE.set(State::init(
+            storage,
+            audio_enable,
+            audio_pwm,
+            audio_clock,
+            audio_dma,
+        )?);
         event_queue.bind(&PLAY_NEXT_BUFFER);
 
         Ok(Audio {})
@@ -42,7 +52,7 @@ impl Audio {
 
 #[allow(dead_code)]
 // Clips are unsigned 8 bit, 16 KHz.
-pub const SOUND_FREQ: u32 = 16000;
+pub const SOUND_FREQ: HertzU32 = HertzU32::Hz(16000);
 
 // Sound buffer size.
 const BUF_SIZE: usize = 1024;
@@ -127,6 +137,8 @@ struct State {
     fs: FileSystem<Storage>,
     audio_enable: AudioEnable,
     audio_pwm: AudioPwm,
+    audio_clock: AudioClock,
+    audio_dma: AudioDma,
     play_state: PlayState,
     buffers: [[u8; BUF_SIZE]; 2],
 }
@@ -136,11 +148,15 @@ impl State {
         storage: Storage,
         audio_enable: AudioEnable,
         audio_pwm: AudioPwm,
+        audio_clock: AudioClock,
+        audio_dma: AudioDma,
     ) -> Result<Self, Error> {
         Ok(State {
             fs: FileSystem::mount(storage)?,
             audio_enable,
             audio_pwm,
+            audio_clock,
+            audio_dma,
             play_state: PlayState::Idle,
             buffers: [[0; BUF_SIZE]; 2],
         })
@@ -191,7 +207,7 @@ impl State {
         }
         .map_err(|err| {
             rprintln!("Error while starting sound: {:?}", err);
-            self.end_playback();
+            self.end_playback().unwrap();
 
             err
         })?;
@@ -215,7 +231,10 @@ impl State {
                 *next_buffer_index = (play_buffer_index + 1) % 2;
 
                 // Start playing next buffer
-                Self::play_buffer(&self.buffers[play_buffer_index])?;
+                Self::play_buffer(
+                    &mut self.audio_dma,
+                    &self.buffers[play_buffer_index][0..*bytes_in_next_buffer],
+                )?;
 
                 // Read more data
                 *bytes_in_next_buffer = file.read(&mut self.buffers[*next_buffer_index])?;
@@ -224,7 +243,7 @@ impl State {
                 }
             }
             PlayState::LastBlock => {
-                self.end_playback();
+                self.end_playback()?;
             }
         }
 
@@ -232,31 +251,50 @@ impl State {
     }
 
     fn start_playback(&mut self) -> Result<(), Error> {
-        // TODO: enable TIM2 and DMA
         self.audio_enable.set_high();
-        self.audio_pwm.enable(Channel::C2);
+        self.audio_pwm.enable(Channel::C3);
+        self.audio_clock.start(SOUND_FREQ)?;
 
         Ok(())
     }
 
-    fn play_buffer(_buffer: &[u8]) -> Result<(), Error> {
-        // TODO: trigger DMA
+    fn play_buffer(dma: &mut AudioDma, buffer: &[u8]) -> Result<(), Error> {
+        dma.stop();
+        // compiler_fence(Ordering::Release);
 
-        // FIXME: until DMA is here, schedule next iteration immediatelly.
-        rprintln!("Playing buffer");
-        PLAY_NEXT_BUFFER.call();
+        rprintln!(
+            "bytes {:x} {:x} {:x} {:x} {:x} {:x} {:x} {:x}",
+            buffer[0],
+            buffer[1],
+            buffer[2],
+            buffer[3],
+            buffer[4],
+            buffer[5],
+            buffer[6],
+            buffer[7]
+        );
+
+        dma.set_memory_address(buffer.as_ptr() as u32, true);
+        dma.set_transfer_length(buffer.len());
+
+        // compiler_fence(Ordering::Release);
+
+        dma.start();
+
         Ok(())
     }
 
-    fn end_playback(&mut self) {
+    fn end_playback(&mut self) -> Result<(), Error> {
         debug_assert!(!matches!(self.play_state, PlayState::Idle));
 
-        self.audio_enable.set_low();
-        self.audio_pwm.disable(Channel::C2);
-        self.audio_pwm.set_duty(Channel::C2, 0);
-        // TODO: disable TIM2 and DMA
-
         self.play_state = PlayState::Idle;
+
+        self.audio_enable.set_low();
+        self.audio_pwm.disable(Channel::C3);
+        self.audio_pwm.set_duty(Channel::C3, 0);
+        self.audio_clock.cancel()?;
+
+        Ok(())
     }
 }
 
@@ -296,6 +334,10 @@ static PLAY_NEXT_BUFFER: Event =
     Event::new(&|| STATE.with(|state| state.play_next_buffer()).unwrap());
 
 #[interrupt]
-fn DMA1_CHANNEL5() {
+unsafe fn DMA1_CHANNEL2() {
     PLAY_NEXT_BUFFER.call();
+    // Clear interrupt flags
+    (*DMA1::ptr())
+        .ifcr
+        .write(|w| w.cgif2().clear().cteif2().clear().ctcif2().clear());
 }

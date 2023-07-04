@@ -30,7 +30,15 @@ fn main() -> ! {
     let board = Board::new(cp, dp).unwrap();
     let mut queue = event_queue::EventQueue::new(board.ticker);
 
-    let audio = Audio::new(&mut queue, board.storage, board.audio_enable, board.audio_pwm).unwrap();
+    let audio = Audio::new(
+        &mut queue,
+        board.storage,
+        board.audio_enable,
+        board.audio_pwm,
+        board.audio_clock,
+        board.audio_dma,
+    )
+    .unwrap();
 
     let num_steps = ranging::get_num_steps_from_angle_scale(board.adc_ratio).unwrap();
 

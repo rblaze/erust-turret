@@ -1,4 +1,3 @@
-// use crate::audio::SOUND_FREQ;
 use crate::error::Error;
 use crate::storage::SoundStorage;
 use crate::system_time::Ticker;
@@ -15,7 +14,7 @@ use stm32f1xx_hal::pac;
 use stm32f1xx_hal::prelude::*;
 use stm32f1xx_hal::spi::Spi;
 use stm32f1xx_hal::time::{Hertz, MilliSeconds};
-use stm32f1xx_hal::timer::{Ch, Pwm, PwmChannel, Tim3NoRemap, Timer};
+use stm32f1xx_hal::timer::{Ch, CounterHz, Pwm, PwmChannel, Tim3NoRemap, Timer};
 use vl53l1x::{BootState, VL53L1X};
 
 pub use board::{AudioEnable, Laser, Led, SpiBus, SpiCs};
@@ -24,8 +23,9 @@ pub type Sensor = VL53L1X<board::I2cBus>;
 pub type SensorServo = Servo<PwmChannel<TIM1, 0>>;
 pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
 pub type Storage = SoundStorage;
-pub type AudioDma = dma1::C5;
+pub type AudioDma = dma1::C2;
 pub type AudioPwm = Pwm<TIM3, Tim3NoRemap, Ch<2>, board::AudioPwmPin, 4096>;
+pub type AudioClock = CounterHz<stm32f1xx_hal::pac::TIM2>;
 
 const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
@@ -42,6 +42,7 @@ pub struct Board {
     pub audio_enable: AudioEnable,
     pub audio_dma: AudioDma,
     pub audio_pwm: AudioPwm,
+    pub audio_clock: AudioClock,
 }
 
 impl Board {
@@ -164,14 +165,34 @@ impl Board {
             &clocks,
         );
 
-        // TODO setup TIM2 as DMA driver (use sample frequency from audio)
+        // Setup TIM2 as DMA driver
+        let mut audio_clock = dp.TIM2.counter_hz(&clocks);
+        audio_clock.listen(unsafe { stm32f1xx_hal::timer::Event::from_bits_unchecked(1 << 8) });
 
-        // Enable audio DMA
+        // Setup audio DMA
         let dma1 = dp.DMA1.split();
-        let audio_dma = dma1.5;
+        let mut audio_dma = dma1.2;
+
+        // Send data to TIM3 channel 3 CCR
+        audio_dma
+            .set_peripheral_address(unsafe { (*TIM3::ptr()).ccr3() as *const _ as u32 }, false);
+
+        #[rustfmt::skip]
+        audio_dma.ch().cr.modify(|_, w| { w
+            .mem2mem().clear_bit()
+            .pl().high()
+            .msize().bits8()
+            .psize().bits16()
+            .circ().clear_bit()
+            .dir().set_bit()
+            // .tcie().set_bit()
+            // .teie().set_bit()
+        });
+
+        audio_dma.listen(stm32f1xx_hal::dma::Event::TransferComplete);
 
         unsafe {
-            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA1_CHANNEL5);
+            cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA1_CHANNEL2);
         }
 
         Ok(Board {
@@ -187,6 +208,7 @@ impl Board {
             audio_enable,
             audio_dma,
             audio_pwm,
+            audio_clock,
         })
     }
 }
