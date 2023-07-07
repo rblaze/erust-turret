@@ -37,6 +37,7 @@ fn main() -> ! {
         board.audio_pwm,
         board.audio_clock,
         board.audio_dma,
+        board.random,
     )
     .unwrap();
 

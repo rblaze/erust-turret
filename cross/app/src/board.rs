@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::storage::SoundStorage;
 use crate::system_time::Ticker;
 
+use fastrand::Rng;
 use fugit::TimerDurationU32;
 use num::rational::Ratio;
 use rtt_target::rprintln;
@@ -47,6 +48,7 @@ pub struct Board {
     pub audio_dma: AudioDma,
     pub audio_pwm: AudioPwm,
     pub audio_clock: AudioClock,
+    pub random: Rng,
 }
 
 impl Board {
@@ -76,16 +78,13 @@ impl Board {
         // Read servo range calibration value
         let mut adc = Adc::adc1(dp.ADC1, clocks);
         let mut servo_range_ch = gpioa.pa1.into_analog(&mut gpioa.crl);
-        let mut adc_value = adc.read(&mut servo_range_ch)?;
+        let adc_reading: u16 = adc.read(&mut servo_range_ch)?;
         let adc_max = adc.max_sample();
         adc.release(); // No longer needed
 
-        rprintln!("range {} of {}", adc_value, adc_max);
+        rprintln!("range {} of {}", adc_reading, adc_max);
         // Avoid too small range
-        if adc_value < adc_max / 10 {
-            adc_value = adc_max / 10;
-        }
-
+        let adc_value = adc_reading.max(adc_max / 10);
         let adc_ratio = Ratio::new(adc_value, adc_max);
 
         // Disable JTAG to get PB3 (mistake in board design)
@@ -200,6 +199,9 @@ impl Board {
             cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA1_CHANNEL2);
         }
 
+        // Scoop some randomish data for PRNG
+        let random = Rng::with_seed(adc_reading as u64 | cp.DWT.cyccnt.read() as u64);
+
         Ok(Board {
             ticker,
             laser_led,
@@ -214,6 +216,7 @@ impl Board {
             audio_dma,
             audio_pwm,
             audio_clock,
+            random,
         })
     }
 }

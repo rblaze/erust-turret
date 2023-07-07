@@ -3,6 +3,7 @@ use crate::error::Error;
 use crate::event_queue::{Event, EventQueue};
 use core::cell::RefCell;
 use core::sync::atomic::{compiler_fence, Ordering};
+use fastrand::Rng;
 use fugit::HertzU32;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
@@ -33,6 +34,7 @@ impl Audio {
         audio_pwm: AudioPwm,
         audio_clock: AudioClock,
         audio_dma: AudioDma,
+        random: Rng,
     ) -> Result<Audio, Error> {
         STATE.set(State::init(
             storage,
@@ -40,6 +42,7 @@ impl Audio {
             audio_pwm,
             audio_clock,
             audio_dma,
+            random,
         )?);
         event_queue.bind(&PLAY_NEXT_BUFFER);
 
@@ -140,6 +143,7 @@ struct State {
     audio_pwm: AudioPwm,
     audio_clock: AudioClock,
     audio_dma: AudioDma,
+    random: Rng,
     play_state: PlayState,
     buffers: [[u8; BUF_SIZE]; 2],
 }
@@ -151,6 +155,7 @@ impl State {
         audio_pwm: AudioPwm,
         audio_clock: AudioClock,
         audio_dma: AudioDma,
+        random: Rng,
     ) -> Result<Self, Error> {
         Ok(State {
             fs: FileSystem::mount(storage)?,
@@ -158,14 +163,17 @@ impl State {
             audio_pwm,
             audio_clock,
             audio_dma,
+            random,
             play_state: PlayState::Idle,
             buffers: [[0; BUF_SIZE]; 2],
         })
     }
 
-    fn pick_clip(&self, clips: &[Clip]) -> Clip {
-        // TODO select randomly
-        clips[0]
+    fn pick_clip(&mut self, clips: &[Clip]) -> Clip {
+        // TODO use random shuffle for each clip set.
+        // This will provide more diverse clips for short runs.
+        let index = self.random.usize(0..clips.len());
+        clips[index]
     }
 
     fn play(&mut self, sound: Sound) -> Result<(), Error> {
