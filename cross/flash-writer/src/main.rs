@@ -129,7 +129,7 @@ fn main() -> ! {
             .read((current_block * BLOCK_LEN) as u32, buffer)
             .unwrap();
 
-        let mut data_bytes = &buffer[..];
+        let mut data_bytes: &[u8] = buffer;
 
         while data_bytes.remaining() > 0 {
             board.crc.write(data_bytes.get_u32());
