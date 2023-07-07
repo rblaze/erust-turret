@@ -2,6 +2,7 @@ use crate::board::{AudioClock, AudioDma, AudioEnable, AudioPwm, Storage};
 use crate::error::Error;
 use crate::event_queue::{Event, EventQueue};
 use core::cell::RefCell;
+use core::sync::atomic::{compiler_fence, Ordering};
 use fugit::HertzU32;
 use rtt_target::rprintln;
 use simplefs::{File, FileSystem};
@@ -260,24 +261,11 @@ impl State {
 
     fn play_buffer(dma: &mut AudioDma, buffer: &[u8]) -> Result<(), Error> {
         dma.stop();
-        // compiler_fence(Ordering::Release);
-
-        rprintln!(
-            "bytes {:x} {:x} {:x} {:x} {:x} {:x} {:x} {:x}",
-            buffer[0],
-            buffer[1],
-            buffer[2],
-            buffer[3],
-            buffer[4],
-            buffer[5],
-            buffer[6],
-            buffer[7]
-        );
 
         dma.set_memory_address(buffer.as_ptr() as u32, true);
         dma.set_transfer_length(buffer.len());
 
-        // compiler_fence(Ordering::Release);
+        compiler_fence(Ordering::Release);
 
         dma.start();
 
@@ -337,7 +325,5 @@ static PLAY_NEXT_BUFFER: Event =
 unsafe fn DMA1_CHANNEL2() {
     PLAY_NEXT_BUFFER.call();
     // Clear interrupt flags
-    (*DMA1::ptr())
-        .ifcr
-        .write(|w| w.cgif2().clear().cteif2().clear().ctcif2().clear());
+    (*DMA1::ptr()).ifcr.write(|w| w.cgif2().clear());
 }

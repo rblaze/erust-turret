@@ -19,15 +19,19 @@ use vl53l1x::{BootState, VL53L1X};
 
 pub use board::{AudioEnable, Laser, Led, SpiBus, SpiCs};
 
+const SERVO_FREQ: Hertz = Hertz::Hz(50);
+// Set max available clock frequency.
+// Not important for CPU but audio PWM resolution is barely enough even this way.
+// In hindsight, should have used chip with DAC.
+const CLOCK_FREQ: u32 = 64_000_000;
+
 pub type Sensor = VL53L1X<board::I2cBus>;
 pub type SensorServo = Servo<PwmChannel<TIM1, 0>>;
 pub type LaserServo = Servo<PwmChannel<TIM1, 1>>;
 pub type Storage = SoundStorage;
 pub type AudioDma = dma1::C2;
-pub type AudioPwm = Pwm<TIM3, Tim3NoRemap, Ch<2>, board::AudioPwmPin, 4096>;
+pub type AudioPwm = Pwm<TIM3, Tim3NoRemap, Ch<2>, board::AudioPwmPin, CLOCK_FREQ>;
 pub type AudioClock = CounterHz<stm32f1xx_hal::pac::TIM2>;
-
-const SERVO_FREQ: Hertz = Hertz::Hz(50);
 
 pub struct Board {
     pub ticker: Ticker,
@@ -58,7 +62,10 @@ impl Board {
         // Configure the clock.
         let mut flash = dp.FLASH.constrain();
         let rcc = dp.RCC.constrain();
-        let clocks = rcc.cfgr.sysclk(64.MHz()).freeze(&mut flash.acr);
+        let clocks = rcc
+            .cfgr
+            .sysclk(Hertz::Hz(CLOCK_FREQ))
+            .freeze(&mut flash.acr);
 
         let mut afio = dp.AFIO.constrain();
 
@@ -185,8 +192,6 @@ impl Board {
             .psize().bits16()
             .circ().clear_bit()
             .dir().set_bit()
-            // .tcie().set_bit()
-            // .teie().set_bit()
         });
 
         audio_dma.listen(stm32f1xx_hal::dma::Event::TransferComplete);
