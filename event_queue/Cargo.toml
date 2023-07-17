@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-critical-section = "1.1.1"
-intrusive-collections = { version = "0.9.4", default-features = false }
+critical-section = "1.1"
+intrusive-collections = { version = "0.9", default-features = false }
 
 [dev-dependencies]
-critical-section = { version = "1.1.1", features = ["std"] }
+critical-section = { version = "1.1", features = ["std"] }

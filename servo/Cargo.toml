@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-embedded-hal = "0.2.7"
-num = { version = "0.4.1", default-features = false }
+embedded-hal = "0.2"
+num = { version = "0.4", default-features = false }

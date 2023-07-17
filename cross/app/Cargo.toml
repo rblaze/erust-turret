@@ -12,20 +12,20 @@ event_queue = { path = "../../event_queue" }
 servo = { path = "../../servo" }
 simplefs = { path = "../../simplefs" }
 vl53l1x = { path = "../../VL53L1X" }
-cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
-cortex-m-rt = "0.7.1"
-critical-section = { version = "1.1.1" }
-embedded-hal = "0.2.7"
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+critical-section = { version = "1.1" }
+embedded-hal = "0.2"
 fastrand = { version = "2.0", default-features = false }
-fugit = "0.3.7"
-nb = "1.0.0"
-num = { version = "0.4.1", default-features = false }
-spi-memory = "0.2.0"
+fugit = "0.3"
+nb = "1.0"
+num = { version = "0.4", default-features = false }
+spi-memory = "0.2"
 stm32f1xx-hal = { version = "0.10", features = ["stm32f103", "rt", "medium"] }
 
 # panic-halt = "0.2.0"
-panic-probe = { version = "0.3.0", features = ["print-rtt"] }
-rtt-target = "0.4.0"
+panic-probe = { version = "0.3", features = ["print-rtt"] }
+rtt-target = "0.4"
 
 [[bin]]
 name = "erust-turret"
