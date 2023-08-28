@@ -7,7 +7,7 @@ edition = "2021"
 simplefs = { path = "../simplefs" }
 anyhow = "1.0"
 bytes = { git = "https://github.com/rblaze/embedded-bytes.git" }
-clap = { version = "4.3", features = ["derive"] }
+clap = { version = "4.4", features = ["derive"] }
 
 [dev-dependencies]
 quickcheck = "1.0"
