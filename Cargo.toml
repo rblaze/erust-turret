@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
   "board",
   "calibration",
@@ -7,5 +8,4 @@ members = [
   "simplefs",
   "simplefs-builder",
   "servo",
-  "VL53L1X",
 ]
