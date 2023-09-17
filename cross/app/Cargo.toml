@@ -9,7 +9,7 @@ edition = "2021"
 board = { path = "../../board" }
 calibration = { path = "../../calibration" }
 event_queue = { path = "../../event_queue" }
-servo = { path = "../../servo" }
+servo = { git = "https://github.com/rblaze/erust-servo.git" }
 simplefs = { path = "../../simplefs" }
 vl53l1x = { git = "https://github.com/rblaze/erust-VL53L1X.git" }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }

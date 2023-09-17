@@ -7,5 +7,4 @@ members = [
   "send-flash-image",
   "simplefs",
   "simplefs-builder",
-  "servo",
 ]
