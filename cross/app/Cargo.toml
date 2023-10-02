@@ -10,7 +10,7 @@ board = { path = "../../board" }
 calibration = { path = "../../calibration" }
 event_queue = { path = "../../event_queue" }
 servo = { git = "https://github.com/rblaze/erust-servo.git" }
-simplefs = { path = "../../simplefs" }
+simplefs = { git = "https://github.com/rblaze/rust-simplefs.git" }
 vl53l1x = { git = "https://github.com/rblaze/erust-VL53L1X.git" }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
